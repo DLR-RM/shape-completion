@@ -1,6 +1,6 @@
 # Shape Completion
 
-This is the official repository of the following publications:
+This is the official repository for the following publications:
 
 | Title | Authors | Venue |
 |---|---|---|
