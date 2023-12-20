@@ -9,7 +9,7 @@ Shape completion only:
 
 | Title | Authors | Venue |
 |---|---|---|
-| [**Combining Shape Completion and Grasp Prediction for Fast and Versatile Grasping with a Multi-Fingered Hand**](https://dlr-alr.github.io/grasping/_pages/humanoids23.html) | Matthias Humt, Dominik Winkelbauer, Ulrich Hillenbrand, Berhold Bäumle | Humanoids 2023 |
+| [**Combining Shape Completion and Grasp Prediction for Fast and Versatile Grasping with a Multi-Fingered Hand**](https://dlr-alr.github.io/grasping/_pages/humanoids23.html) | Matthias Humt, Dominik Winkelbauer, Ulrich Hillenbrand, Berthold Bäumle | Humanoids 2023 |
 
 ## Code
 Almost ready for release.
