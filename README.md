@@ -3,13 +3,13 @@ This is the official repository for the following publications:
 
 | Title | Authors | Venue |
 |---|---|---|
-| [**Shape Completion with Prediction of Uncertain Regions**](https://arxiv.org/abs/2308.00377) | Matthias Humt, Dominik Winkelbauer, Ulrich Hillenbrand | IROS 2023 |
+| [**Shape Completion with Prediction of Uncertain Regions**](https://arxiv.org/abs/2308.00377) | [Matthias Humt](https://www.hummat.com/), Dominik Winkelbauer, Ulrich Hillenbrand | IROS 2023 |
 
 Shape completion only:
 
 | Title | Authors | Venue |
 |---|---|---|
-| [**Combining Shape Completion and Grasp Prediction for Fast and Versatile Grasping with a Multi-Fingered Hand**](https://dlr-alr.github.io/grasping/_pages/humanoids23.html) | Matthias Humt, Dominik Winkelbauer, Ulrich Hillenbrand, Berthold Bäumle | Humanoids 2023 |
+| [**Combining Shape Completion and Grasp Prediction for Fast and Versatile Grasping with a Multi-Fingered Hand**](https://dlr-alr.github.io/grasping/_pages/humanoids23.html) | [Matthias Humt](https://www.hummat.com/), Dominik Winkelbauer, Ulrich Hillenbrand, Berthold Bäumle | Humanoids 2023 |
 
 ## Code
 ### [`conf`](https://github.com/DLR-RM/shape-completion/tree/main/conf)
