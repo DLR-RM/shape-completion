@@ -110,7 +110,6 @@ def get_mask(data_dir: str,
         destroyAllWindows()
 
     rembg_output = remove(rembg_input, alpha_matting=True, alpha_matting_erode_size=15, only_mask=True)
-    path = f"/home/matthias/Data/Ubuntu/git/occupancy_networks/demo/detergent{image_id}.jpg"
     test = Image.composite(Image.fromarray(rembg_input),
                            Image.fromarray(np.ones_like(rembg_input) * 255),
                            Image.fromarray(rembg_output))

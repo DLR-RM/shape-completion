@@ -12,7 +12,45 @@ Shape completion only:
 | [**Combining Shape Completion and Grasp Prediction for Fast and Versatile Grasping with a Multi-Fingered Hand**](https://dlr-alr.github.io/grasping/_pages/humanoids23.html) | Matthias Humt, Dominik Winkelbauer, Ulrich Hillenbrand, Berthold Bäumle | Humanoids 2023 |
 
 ## Code
-Almost ready for release.
+### [`conf`](https://github.com/DLR-RM/shape-completion/conf)
+
+The [`conf`](https://github.com/DLR-RM/shape-completion/conf) submodule contains configuration files for the project. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/conf/blob/main/README.md).
+
+### [`libs`](https://github.com/DLR-RM/shape-completion/libs)
+
+The [`libs`](https://github.com/DLR-RM/shape-completion/libs) submodule contains various 3rd-party libraries with additional functionality not provided by existing Python packages. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/libs/blob/main/README.md).
+
+### [`models`](https://github.com/DLR-RM/shape-completion/models)
+
+Coming soon.
+
+### [`utils`](https://github.com/DLR-RM/shape-completion/utils)
+
+The [`utils`](https://github.com/DLR-RM/shape-completion/utils) submodule contains utility functions and classes shared across the project. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/utils/blob/main/README.md).
+
+### [`dataset`](https://github.com/DLR-RM/shape-completion/dataset)
+
+The [`dataset`](https://github.com/DLR-RM/shape-completion/dataset) submodule includes classes and functions to manage and load datasets utilized by the models. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/dataset/blob/main/README.md).
+
+### [`train`](https://github.com/DLR-RM/shape-completion/train)
+
+Coming soon.
+
+### [`eval`](https://github.com/DLR-RM/shape-completion/eval)
+
+Coming soon.
+
+### [`inference`](https://github.com/DLR-RM/shape-completion/inference)
+
+Coming soon.
+
+### [`visualization`](https://github.com/DLR-RM/shape-completion/visualize)
+
+The [`visualization`](https://github.com/DLR-RM/shape-completion/visualize) submodule includes utilities and scripts for visualizing model results, data, and other related visual content. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/visualize/blob/main/README.md).
+
+### [`process`](https://github.com/DLR-RM/shape-completion/process)
+
+The [`process`](https://github.com/DLR-RM/shape-completion/process) submodule contains various miscellaneous scripts. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/process/blob/main/README.md).
 
 ## Datasets
 ### 1. [Shape Completion with Prediction of Uncertain Regions](https://zenodo.org/uploads/10284230)

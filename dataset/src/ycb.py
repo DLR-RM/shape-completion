@@ -108,9 +108,7 @@ class YCB(Dataset):
                                                         cache=True,
                                                         transform=Compose(inputs_trafos) if inputs_trafos else None)
             if input_type in ["image", "rgbd"]:
-                path_prefix = "/home/matthias/Data2/datasets/shapenet/bottles_rgbd"
-                self.fields["inputs"] = BlenderProcRGBDField(path_prefix=path_prefix,
-                                                             unscale=True,
+                self.fields["inputs"] = BlenderProcRGBDField(unscale=True,
                                                              undistort=True,
                                                              num_shards=5,
                                                              files_per_shard=5,
