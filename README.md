@@ -14,11 +14,11 @@ Shape completion only:
 ## Code
 ### [`conf`](https://github.com/DLR-RM/shape-completion/tree/main/conf)
 
-The [`conf`](https://github.com/DLR-RM/shape-completion/tree/main/conf) submodule contains configuration files for the project. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/tree/main/conf/blob/main/README.md).
+The [`conf`](https://github.com/DLR-RM/shape-completion/tree/main/conf) submodule contains configuration files for the project. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/blob/main/conf/README.md).
 
 ### [`libs`](https://github.com/DLR-RM/shape-completion/tree/main/libs)
 
-The [`libs`](https://github.com/DLR-RM/shape-completion/tree/main/libs) submodule contains various 3rd-party libraries with additional functionality not provided by existing Python packages. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/tree/main/libs/blob/main/README.md).
+The [`libs`](https://github.com/DLR-RM/shape-completion/tree/main/libs) submodule contains various 3rd-party libraries with additional functionality not provided by existing Python packages. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/blob/main/libs/README.md).
 
 ### [`models`](https://github.com/DLR-RM/shape-completion/tree/main/models)
 
@@ -26,11 +26,11 @@ Coming soon.
 
 ### [`utils`](https://github.com/DLR-RM/shape-completion/tree/main/utils)
 
-The [`utils`](https://github.com/DLR-RM/shape-completion/tree/main/utils) submodule contains utility functions and classes shared across the project. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/tree/main/utils/blob/main/README.md).
+The [`utils`](https://github.com/DLR-RM/shape-completion/tree/main/utils) submodule contains utility functions and classes shared across the project. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/blob/main/utils/README.md).
 
 ### [`dataset`](https://github.com/DLR-RM/shape-completion/tree/main/dataset)
 
-The [`dataset`](https://github.com/DLR-RM/shape-completion/tree/main/dataset) submodule includes classes and functions to manage and load datasets utilized by the models. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/tree/main/dataset/blob/main/README.md).
+The [`dataset`](https://github.com/DLR-RM/shape-completion/tree/main/dataset) submodule includes classes and functions to manage and load datasets utilized by the models. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/blob/main/dataset/README.md).
 
 ### [`train`](https://github.com/DLR-RM/shape-completion/tree/main/train)
 
@@ -46,11 +46,11 @@ Coming soon.
 
 ### [`visualization`](https://github.com/DLR-RM/shape-completion/tree/main/visualize)
 
-The [`visualization`](https://github.com/DLR-RM/shape-completion/tree/main/visualize) submodule includes utilities and scripts for visualizing model results, data, and other related visual content. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/tree/main/visualize/blob/main/README.md).
+The [`visualization`](https://github.com/DLR-RM/shape-completion/tree/main/visualize) submodule includes utilities and scripts for visualizing model results, data, and other related visual content. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/blob/main/visualize/README.md).
 
 ### [`process`](https://github.com/DLR-RM/shape-completion/tree/main/process)
 
-The [`process`](https://github.com/DLR-RM/shape-completion/tree/main/process) submodule contains various miscellaneous scripts. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/tree/main/process/blob/main/README.md).
+The [`process`](https://github.com/DLR-RM/shape-completion/tree/main/process) submodule contains various miscellaneous scripts. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/blob/main/process/README.md).
 
 ## Datasets
 ### 1. [Shape Completion with Prediction of Uncertain Regions](https://zenodo.org/uploads/10284230)
