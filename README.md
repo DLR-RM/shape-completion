@@ -67,25 +67,25 @@ After downloading the `shapenet.tar.gz` and `bop.tar.gz` files as well as the or
 ```bash
 .
 ├── shapenet
-│   └── 03797390
-│       ├── 1038e4eac0e18dcce02ae6d2a21d494a
+│   └── 03797390
+│       ├── 1038e4eac0e18dcce02ae6d2a21d494a
 |       |   ├── blenderproc
-│       │   ├── mesh
-│       │   ├── model.binvox
-│       │   ├── pointcloud.npz
-│       │   ├── points.npz
-│       │   └── samples
-│       ├── 10c2b3eac377b9084b3c42e318f3affc
-│       ├── 10f6e09036350e92b3f21f1137c3c347
+│       │   ├── mesh
+│       │   ├── model.binvox
+│       │   ├── pointcloud.npz
+│       │   ├── points.npz
+│       │   └── samples
+│       ├── 10c2b3eac377b9084b3c42e318f3affc
+│       ├── 10f6e09036350e92b3f21f1137c3c347
 |       ├── ...
 |       ├── train.lst
 |       ├── val.lst
 |       └── test.lst
 └── bop
-    ├── hb
-    ├── lm
-    ├── tyol
-    └── ycbv
+    ├── hb
+    ├── lm
+    ├── tyol
+    └── ycbv
 ```
 
 **Code**
