@@ -1,0 +1,301 @@
+defaults:
+  - dirs: default
+  - _self_
+
+hydra:
+  run:
+    dir: ./logs/hydra/${now:%Y-%m-%d_%H-%M-%S}
+
+script: main
+
+files:
+  pointcloud:
+  points:
+    train:
+    val:
+    test:
+  normals:
+  voxels:
+  mesh:
+  split:
+    train:
+    val:
+    test:
+  suffix: ""
+
+misc:
+  seed: 0
+
+model:
+  arch: onet
+  weights:
+  checkpoint:
+  dropout: 0
+  norm:
+  activation: relu
+  load_best: False
+  reduction: mean
+  compile: False
+
+data:
+  train_ds:
+  val_ds:
+  test_ds:
+  categories:
+  objects:
+  num_files:
+    train: 1
+    val: 1
+    test: 1
+  num_shards:
+    train: 1
+    val: 1
+    test: 1
+  unscale: False
+  undistort: False
+  unrotate: False
+  scale_multiplier:
+  sdf_from_occ: False
+  cache: False
+
+inputs:
+  dim: 3
+  type: pointcloud
+  num_points: 300
+  min_num_points: 1
+  max_num_points: 100000
+  frame:
+  voxelize:
+  bps:
+    apply: False
+    num_points: 1024
+    resolution: 32
+    feature: delta
+    basis: sphere
+    method: kdtree
+  load_random: False
+  bbox: False
+  cache: False
+  data_dir:
+  image_dir:
+  cam_dir:
+  precision: 16
+  nerf: False
+
+points:
+  dim: 3
+  min_num_points: 1
+  max_num_points:
+  load_all: True
+  load_random: False
+  load_uncertain: False
+  load_surface: False
+  subsample: True
+  crop: False
+  from_mesh: False
+  voxelize:
+  bbox: False
+  cache: False
+  data_dir:
+  nerf: False
+  in_out_ratio:
+
+pointcloud:
+  num_points:
+  min_num_points: 1
+  max_num_points:
+  normals: False
+  bbox: False
+  cache: False
+  data_dir:
+  nerf: False
+
+mesh:
+  bbox: False
+  cache: False
+  data_dir:
+  load: False
+
+norm:
+  padding: 0.1
+  center:
+  scale: False
+  to_front: False
+  reference: inputs
+  method: cube
+  offset:
+  true_height: False
+
+aug:
+  noise:
+  clip_noise:
+  edge_noise:
+  scale:
+  remove_outlier: False
+  downsample:
+  remove_angle: False
+  rotate:
+  angle_from_index: False
+  principal_rotations: False
+  upper_hemisphere: True
+  voxel_size:
+  bbox_jitter:
+  cut_plane:
+  cut_sphere:
+
+implicit:
+  threshold: 0.5
+  sdf: False
+
+cls:
+  occupancy: True
+  num_classes:
+  weight: 0
+
+seg:
+  inputs: False
+  points: False
+  pointcloud: False
+  mesh: False
+  num_classes:
+  weight: 0
+
+train:
+  gpus: 1
+  resume: False
+  early_stopping:
+  model_selection_metric: val_f1
+  patience_factor: 10
+  lr_reduction_factor: 0.5
+  lr_step_size: 10
+  lr_gamma: 0.9
+  lr: 3.125e-6
+  betas:
+    - 0.9
+    - 0.999
+  weight_decay: 0.01
+  gradient_clip_val:
+  scale_lr: True
+  batch_size: 32
+  epochs: 10
+  loss:
+  reduction: mean
+  num_query_points: 2048
+  load_surface_points:
+  overfit_batches: False
+  fast_dev_run: False
+  optimizer: AdamW
+  scheduler:
+  hypergradients: False
+  accumulate_grad_batches: 1
+  num_batches:
+  show: False
+  precision: 32-true
+
+val:
+  batch_size: 32
+  num_query_points: 100000
+  load_surface_points:
+  freq: 1
+  voxels: False
+  verify: False
+  num_batches:
+  num_sanity: 2
+  visualize: False
+  vis_n_eval: 2
+  vis_n: 4
+  vis_inputs: True
+  vis_mesh: True
+  vis_logits: True
+  no_aug: False
+
+test:
+  num_query_points: ${val.num_query_points}
+  load_surface_points: ${val.load_surface_points}
+  run: False
+  split: test
+  dir:
+  filename:
+  overwrite: False
+  basic: True
+  no_aug: ${val.no_aug}
+  metrics:
+
+predict:
+  metrics:
+
+vis:
+  split: train
+  inputs: True
+  occupancy: True
+  points: False
+  pointcloud: False
+  voxels: False
+  mesh: False
+  box: True
+  bbox: False
+  cam: False
+  frame: True
+  show: False
+  use_loader: False
+  save: False
+  num_query_points: 1000000
+  resolution: 128
+  upsampling_steps:
+  refinement_steps: 0
+  normals: False
+  simplify:
+
+log:
+  freq: 10
+  wandb: False
+  name: ${model.arch}
+  project: ${hydra:job.config_name}
+  id:
+  offline: False
+  profile: False
+  no_progress: False
+  verbose: False
+  model: False
+  top_k: 1
+  gradients: False
+  parameters: False
+  graph: False
+  pretty: False
+  metrics:
+
+load:
+  pin_memory: True
+  num_workers: -1
+  prefetch_factor: 2
+  precision: 32
+  res_modifier: 2
+  preload: False
+  weighted:
+  hdf5: False
+  keys_to_keep:
+    - index
+    - category.id
+    - category.name
+    - category.index
+    - inputs
+    - inputs.cos_sim
+    - inputs.skip
+    - inputs.path
+    - inputs.name
+    - inputs.labels
+    - inputs.nerf
+    - points
+    - points.occ
+    - points.labels
+    - points.nerf
+    - points.path
+    - pointcloud
+    - pointcloud.normals
+    - pointcloud.labels
+    - pointcloud.nerf
+    - mesh.vertices
+    - mesh.triangles
+    - mesh.labels
+    - mesh.path
+    - bbox

@@ -1,0 +1,30 @@
+defaults:
+  - shapenet
+  - _self_
+
+data:
+  categories:
+    - "03797390"
+  num_files:
+    train: 100
+    val: 10
+    test: 10
+  num_shards:
+    train: 10
+    val: 10
+    test: 20
+  unscale: True
+  undistort: True
+  scale_multiplier: 1
+
+inputs:
+  type: depth_bp
+  num_points:
+
+points:
+  load_all: True
+  subsample: False
+  load_random: False
+
+mesh:
+  data_dir: mesh

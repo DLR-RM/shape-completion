@@ -1,0 +1,30 @@
+defaults:
+  - config
+  - _self_
+
+files:
+  pointcloud: pointcloud.npz
+  points:
+    train: points.npz
+    val: points.npz
+    test: points.npz
+
+model:
+  arch: conv_onet_grid
+
+data:
+  train_ds:
+    - shapenet_v1_occ_net
+  val_ds:
+    - shapenet_v1_occ_net
+  test_ds:
+    - shapenet_v1_occ_net
+
+train:
+  epochs: 100
+
+val:
+  freq: 1
+
+log:
+  freq: 100

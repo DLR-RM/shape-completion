@@ -134,3 +134,4 @@ dmypy.json
 .pytest_cache/
 .mypy_cache/
 .python-version
+logs/
