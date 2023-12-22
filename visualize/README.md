@@ -1,6 +1,6 @@
-# shape-completion-visualization
+# Visualization
 
-Place for shape completion visualization code
+Place for shape completion visualization code such as mesh extraction and rendering.
 
 ## Installation
 

@@ -1,9 +1,7 @@
-# shape-completion-dataset
+# Datasets
 
-# Dataset
-
-The `dataset` repository provides a comprehensive suite of tools for managing, loading, and transforming datasets,
-particularly focusing on 3D data and geometric objects. This module aims to support a variety of data types and
+Comprehensive suite of tools for managing, loading, and transforming datasets,
+particularly focusing on 3D data and geometric objects. The aim is to support a variety of data types and
 operations, including mesh manipulation, transformations, and interaction with specific datasets like BOP, ShapeNet, and
 YCB.
 

@@ -14,7 +14,7 @@ Shape completion only:
 ## Code
 ### [`conf`](https://github.com/DLR-RM/shape-completion/tree/main/conf)
 
-The [`conf`](https://github.com/DLR-RM/shape-completion/tree/main/conf) submodule contains configuration files for the project. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/blob/main/conf/README.md).
+The [`conf`](https://github.com/DLR-RM/shape-completion/tree/main/conf) submodule contains configuration files for the project. Make sure to set paths to `log` and any dataset directories you want to use in `dirs/default.yaml`. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/blob/main/conf/README.md).
 
 ### [`libs`](https://github.com/DLR-RM/shape-completion/tree/main/libs)
 
@@ -50,7 +50,12 @@ The [`visualization`](https://github.com/DLR-RM/shape-completion/tree/main/visua
 
 ### [`process`](https://github.com/DLR-RM/shape-completion/tree/main/process)
 
-The [`process`](https://github.com/DLR-RM/shape-completion/tree/main/process) submodule contains various miscellaneous scripts. More details can be found in the [README](https://github.com/DLR-RM/shape-completion/blob/main/process/README.md).
+The [`process`](https://github.com/DLR-RM/shape-completion/tree/main/process) submodule contains various miscellaneous scripts. In particular:
+
+* `make_watertight.py`: Generate watertight meshes from arbitrary triangle soups.
+* `find_uncertain_regions.py`: Identify regions with ambiguous occupancy given the current point of view as used in [Shape Completion with Prediction of Uncertain Regions](https://arxiv.org/abs/2308.00377).
+
+More details can be found in the [README](https://github.com/DLR-RM/shape-completion/blob/main/process/README.md).
 
 ## Datasets
 ### 1. [Shape Completion with Prediction of Uncertain Regions](https://zenodo.org/uploads/10284230)

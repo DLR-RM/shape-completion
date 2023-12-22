@@ -1,6 +1,6 @@
-# shape-completion-utils
+# Utility Functions
 
-The `utils` submodule consists of utility functions and classes that are shared across different parts of the project.
+Utility functions and classes that are shared across different parts of the project.
 This collection of utilities is designed to reduce code duplication and promote reusable code patterns.
 
 #### Structure

@@ -1,9 +1,9 @@
-# shape-completion-libs
+# Libraries
 
-This repository consists of several libraries that assist in geometry and 3D manipulation, including operations on point
+Several libraries that assist in geometry and 3D manipulation, including operations on point
 clouds, meshes, and more. The available libraries and functionalities are listed below.
 
-## Libraries
+## List of available libraries
 
 ### libchamfer
 
