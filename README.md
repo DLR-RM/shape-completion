@@ -102,12 +102,12 @@ Python code for loading of the dataset is provided in [`datasets/shapenet.py`]()
 If you find the provided dataset useful in your research, please use the following BibTex entry to cite the corresponding research paper:
 
 ```bibtex
-@misc{humt2023shape,
-      title={Shape Completion with Prediction of Uncertain Regions}, 
-      author={Matthias Humt and Dominik Winkelbauer and Ulrich Hillenbrand},
-      year={2023},
-      eprint={2308.00377},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV}
+@inproceedings{humt2023uncertain,
+  author={Humt, Matthias and Winkelbauer, Dominik and Hillenbrand, Ulrich},
+  booktitle={2023 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)}, 
+  title={Shape Completion with Prediction of Uncertain Regions}, 
+  year={2023},
+  pages={1215-1221},
+  doi={10.1109/IROS55552.2023.10342487}
 }
 ```
