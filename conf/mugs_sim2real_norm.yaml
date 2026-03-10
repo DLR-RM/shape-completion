@@ -1,0 +1,56 @@
+defaults:
+  - mugs
+  - _self_
+
+files:
+  points:
+    train:
+      - samples/uniform_random.npy
+      - samples/uniform_sphere_0.npy
+      - samples/uniform_sphere_1.npy
+      - samples/uniform_sphere_2.npy
+      - samples/uniform_sphere_3.npy
+      - samples/uniform_sphere_4.npy
+      - samples/uniform_sphere_5.npy
+      - samples/uniform_sphere_6.npy
+      - samples/uniform_sphere_7.npy
+      - samples/uniform_sphere_8.npy
+      - samples/uniform_sphere_9.npy
+    val:
+      - samples/uniform_random.npy
+      - samples/uniform_sphere_0.npy
+      - samples/uniform_sphere_1.npy
+      - samples/uniform_sphere_2.npy
+      - samples/uniform_sphere_3.npy
+      - samples/uniform_sphere_4.npy
+      - samples/uniform_sphere_5.npy
+      - samples/uniform_sphere_6.npy
+      - samples/uniform_sphere_7.npy
+      - samples/uniform_sphere_8.npy
+      - samples/uniform_sphere_9.npy
+    test:
+      - samples/uniform_random_0.npy
+      - samples/uniform_random_1.npy
+      - samples/uniform_random_2.npy
+      - samples/uniform_sphere.npy
+  split:
+    train: with_handle.lst
+    val: with_handle.lst
+    test: with_handle.lst
+
+# checkpoint: out/conv_onet/mugs/paper/2dysz9b2/checkpoints/epoch=99-step=628198-val_loss=3200.69-val_iou=0.90-val_f1=0.95.ckpt  # uncertain
+# checkpoint: out/conv_onet/mugs/paper/ag2httin/checkpoints/epoch=96-step=606212-val_loss=2947.95-val_iou=0.90-val_f1=0.95.ckpt  # baseline
+
+# checkpoint: out/conv_onet/mugs/paper/1w65sfs3/checkpoints/epoch=64-step=405188-val_loss=2438.72-val_iou=0.91-val_f1=0.95.ckpt  # view
+# checkpoint: out/conv_onet/mugs/paper/18ueiwwr/checkpoints/epoch=64-step=408328-val_loss=2644.33-val_iou=0.91-val_f1=0.95.ckpt  # view uncertain
+# checkpoint: out/conv_onet/mugs/paper/ag2httin/checkpoints/epoch=69-step=436598-val_loss=3032.84-val_iou=0.89-val_f1=0.94.ckpt  # view + distortion
+# checkpoint: out/conv_onet/mugs/paper/2dysz9b2/checkpoints/epoch=69-step=436598-val_loss=3310.30-val_iou=0.89-val_f1=0.94.ckpt  # view + distortion uncertain
+# checkpoint: out/conv_onet/mugs/paper/75aos83j/checkpoints/epoch=3-step=17626-val_loss=7278.66-val_iou=0.76-val_f1=0.86.ckpt  # instance + distortion
+# checkpoint: out/conv_onet/mugs/paper/8zw5rw5w/checkpoints/epoch=4-step=19830-val_loss=7773.80-val_iou=0.76-val_f1=0.87.ckpt  # instance + distortion uncertain
+
+norm:
+  padding: 1.5
+  scale: True
+
+aug:
+  scale:

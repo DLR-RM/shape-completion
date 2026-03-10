@@ -1,0 +1,29 @@
+defaults:
+  - shapenet_v1_ldm
+  - _self_
+
+inputs:
+  num_points: 10000
+
+aug:
+  noise:
+
+train:
+  precision: 16-mixed
+  weight_decay: 0.01
+  early_stopping: False
+
+log:
+  project: cvpr_2025
+  verbose: True
+
+vae_arch: 3dshape2vecset_vae
+n_latent: 32
+# n_layer: 12
+# no_self_attn: True
+# activation: new_geglu
+sigma_data: 0.5
+
+n_layer_vae: 12
+activation_vae: new_geglu
+nerf_freqs_vae: 10

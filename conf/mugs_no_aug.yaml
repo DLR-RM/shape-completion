@@ -1,0 +1,74 @@
+defaults:
+  - mugs
+  - _self_
+
+files:
+  points:
+    train:
+      - samples/uniform_random.npy
+      - samples/uniform_sphere_0.npy
+      - samples/uniform_sphere_1.npy
+      - samples/uniform_sphere_2.npy
+      - samples/uniform_sphere_3.npy
+      - samples/uniform_sphere_4.npy
+      - samples/uniform_sphere_5.npy
+      - samples/uniform_sphere_6.npy
+      - samples/uniform_sphere_7.npy
+      - samples/uniform_sphere_8.npy
+      - samples/uniform_sphere_9.npy
+      - samples/surface_random.npy
+      - samples/equal_random.npy
+    val:
+      - samples/uniform_random.npy
+      - samples/uniform_sphere_0.npy
+      - samples/uniform_sphere_1.npy
+      - samples/uniform_sphere_2.npy
+      - samples/uniform_sphere_3.npy
+      - samples/uniform_sphere_4.npy
+      - samples/uniform_sphere_5.npy
+      - samples/uniform_sphere_6.npy
+      - samples/uniform_sphere_7.npy
+      - samples/uniform_sphere_8.npy
+      - samples/uniform_sphere_9.npy
+      - samples/surface_random.npy
+      - samples/equal_random.npy
+    test:
+      - samples/uniform_random_0.npy
+      - samples/uniform_random_1.npy
+      - samples/uniform_random_2.npy
+      - samples/uniform_sphere.npy
+  split:
+    train: with_handle.lst
+    val: with_handle.lst
+    test: with_handle.lst
+
+inputs:
+  frame:
+
+data:
+  crop_points: False
+  load_all_points: True
+  subsample_points: False
+  load_normals: False
+  load_mesh: True
+  unscale: True
+  undistort: True
+
+norm:
+  normalize:
+
+aug:
+  noise:
+  edge_noise:
+  remove_angle: False
+  scale: 1
+
+vis:
+  split: val
+  mesh: True
+  occupancy: True
+  pointcloud: False
+  cam: False
+  inputs: True
+  frame: False
+  box: False

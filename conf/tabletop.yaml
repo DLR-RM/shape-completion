@@ -1,0 +1,29 @@
+defaults:
+  - config
+  - _self_
+
+data:
+  train_ds:
+    - tabletop
+
+model:
+  arch: dino
+  compile: True
+
+implicit:
+  near:
+  far:
+
+train:
+  loss: dice+bce
+  epochs: 100
+  gradient_clip_val: 1.0
+  precision: bf16-mixed
+  scheduler: LinearWarmupCosineAnnealingLR
+
+vis:
+  num_query_points:
+
+log:
+  freq: 100
+  verbose: 2

@@ -1,0 +1,16 @@
+defaults:
+  - shapenet_v1_depth
+  - _self_
+
+data:
+  num_files:
+    train: 1
+    val: 1
+    test: 1
+
+inputs:
+  type: depth_like
+  load_random: False
+
+aug:
+  rotate: yx

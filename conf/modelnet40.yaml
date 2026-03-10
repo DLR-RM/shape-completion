@@ -1,0 +1,49 @@
+defaults:
+  - config
+  - _self_
+
+data:
+  train_ds:
+    - modelnet40
+  val_ds:
+    - modelnet40
+  test_ds:
+    - modelnet40
+
+inputs:
+  num_points: 1024
+
+points:
+  subsample: False
+
+norm:
+  padding: 0
+  center: True
+  scale: True
+
+aug:
+  noise: 0.02
+  clip_noise: 0.05
+  rotate: z
+
+cls:
+  modality: object
+  num_classes: 40
+
+train:
+  weight_decay: 0.1
+  model_selection_metric: val/acc
+  optimizer: AdamW8bit
+  precision: bf16-mixed
+  epochs: 250
+  early_stopping: True
+  scheduler: ReduceLROnPlateau
+
+val:
+  no_aug: True
+
+test:
+  no_aug: True
+
+vis:
+  occupancy: False

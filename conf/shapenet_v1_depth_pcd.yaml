@@ -1,0 +1,28 @@
+defaults:
+  - shapenet_v1_depth
+  - _self_
+
+model:
+  arch: pcn
+
+inputs:
+  # num_points: 3000 (PCN), 2048 (SnowflakeNet)
+  min_num_points: 16  # For SnowflakeNet kNN
+
+points:
+  crop: False
+  subsample: False
+
+pointcloud:
+  num_points: 16384
+
+norm:
+  normalize: center_scale
+  reference: pointcloud
+
+train:
+  loss: emd_chamfer
+
+vis:
+  occupancy: False
+  pointcloud: True

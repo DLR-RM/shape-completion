@@ -1,0 +1,68 @@
+defaults:
+  - dtu_dvr_fast
+  - _self_
+
+files:
+  mesh: normalized.ply
+  
+data:
+  train_ds:
+    - automatica
+  categories:
+    - mokka
+  num_files:
+    train: 64
+    val: 16
+
+implicit:
+  far: 5
+
+inputs:
+  type: render_color
+  width: 640
+  height: 480
+  load_random: True
+
+points:
+  from_mesh: True
+  load_all: False
+  load_surface: True
+  crop: True
+  cache: True
+
+mesh:
+  rot:
+    - -90
+    - 0
+    - 0
+
+train:
+  batch_size: 1
+  num_query_points:
+
+val:
+  freq: 10
+
+vis:
+  num_query_points: 65536
+
+load:
+  num_workers: 4
+  keys_to_keep:
+    - index
+    - category.id
+    - category.name
+    - category.index
+    - inputs
+    - inputs.path
+    - inputs.name
+    - inputs.image
+    - inputs.mask
+    - inputs.depth
+    - inputs.normals
+    - inputs.intrinsic
+    - inputs.extrinsic
+    - inputs.width
+    - inputs.height
+    - points
+    - points.occ

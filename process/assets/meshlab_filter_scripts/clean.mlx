@@ -1,0 +1,8 @@
+<!DOCTYPE FilterScript>
+<FilterScript>
+ <filter name="Select small disconnected component">
+  <Param type="RichFloat" value="0.01" name="NbFaceRatio"/>
+  <Param type="RichBool" value="false" name="NonClosedOnly"/>
+ </filter>
+ <filter name="Delete Selected Faces and Vertices"/>
+</FilterScript>

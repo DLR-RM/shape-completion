@@ -1,0 +1,4 @@
+simplify_mesh.cpp
+*.egg-info/
+build/
+dist/

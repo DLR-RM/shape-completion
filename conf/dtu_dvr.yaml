@@ -1,0 +1,75 @@
+defaults:
+  - config
+  - _self_
+
+model:
+  arch: onet_dvr_dtu
+
+data:
+  train_ds:
+    - dtu
+  categories:
+    - skull # skull, angel, birds
+  num_files:
+    train: 34 # 34 for skull, 49 otherwise
+  cache: True
+
+inputs:
+  type: image # or rgbd
+  project: False
+  cache: True
+
+points:
+  subsample: False
+
+implicit:
+  dvr: True
+  num_pixels: 2048
+
+train:
+  lr: 1e-4
+  min_lr: 1e-6
+  scale_lr: False
+  batch_size: 1
+  epochs: 10000
+  gradient_clip_val: 1.0
+  scheduler: LinearWarmupCosineAnnealingLR
+  warmup_frac: 0.005
+  model_selection_metric: val/loss
+
+val:
+  visualize: True
+  vis_n_eval: 1
+  vis_n_category: 1
+  freq: 10
+
+vis:
+  inputs: False
+  render: color+normals
+  num_instances: 1
+  colors: True
+  normals: True
+
+log:
+  name: ${model.arch}_${data.categories[0]}
+  verbose: True
+  pretty: True
+  freq: 10
+
+load:
+  keys_to_keep:
+    - index
+    - category.id
+    - category.name
+    - category.index
+    - inputs
+    - inputs.path
+    - inputs.name
+    - inputs.image
+    - inputs.mask
+    - inputs.depth
+    - inputs.normals
+    - inputs.intrinsic
+    - inputs.extrinsic
+    - inputs.width
+    - inputs.height

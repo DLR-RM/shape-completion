@@ -1,0 +1,10 @@
+defaults:
+  - shapenet_v1_seg_points_depth
+  - _self_
+
+data:
+  unrotate: True
+
+inputs:
+  type: kinect
+  data_dir: shapenet_v1_fused_kinect

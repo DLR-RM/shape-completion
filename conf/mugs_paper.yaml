@@ -1,0 +1,34 @@
+defaults:
+  - mugs
+  - _self_
+
+files:
+  points:
+    train:
+      - samples/uniform_random.npy
+      - samples/uniform_sphere.npy
+  split:
+    train: with_handle.lst
+    val: with_handle.lst
+    test: with_handle.lst
+
+model:
+  num_classes: 2
+
+data:
+  uncertain: False
+
+norm:
+  padding: 0.5
+
+aug:
+  noise:
+  edge_noise:
+  remove_angle: False
+  scale:
+
+train:
+  epochs: 20
+
+val:
+  freq: 0.5

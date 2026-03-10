@@ -1,0 +1,42 @@
+defaults:
+  - config
+  - _self_
+
+data:
+  train_ds:
+    - bunny
+  val_ds:
+    - bunny
+  test_ds:
+    - bunny
+  num_files:
+    train: 320
+    val: 32
+    test: 32
+  cache: True
+
+points:
+  cache: True
+
+pointcloud:
+  cache: True
+
+mesh:
+  cache: True
+
+norm:
+  center: True
+  scale: True
+  reference: pointcloud
+
+train:
+  epochs: 100
+
+val:
+  visualize: False
+  vis_n_eval: 1
+  vis_n: 1
+  show: True
+
+log:
+  freq: 1

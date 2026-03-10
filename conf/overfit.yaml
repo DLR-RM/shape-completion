@@ -1,0 +1,51 @@
+defaults:
+  - config
+  - _self_
+
+data:
+  train_ds:
+    - bunny
+  val_ds:
+    - bunny
+  test_ds:
+    - bunny
+  num_files:
+    train: 1
+    val: 1
+    test: 1
+  cache: True
+
+inputs:
+  num_points:
+
+points:
+  from_mesh: True
+  subsample: False
+  cache: True
+
+pointcloud:
+  from_mesh: True
+  cache: True
+
+mesh:
+  cache: True
+
+norm:
+  center: True
+  scale: True
+  reference: pointcloud
+
+train:
+  lr: 1e-4
+  scale_lr: False
+  batch_size: 1
+  epochs: 1000
+
+val:
+  batch_size: 1
+  visualize: True
+  vis_n_eval: 1
+  show: True
+
+log:
+  freq: 1

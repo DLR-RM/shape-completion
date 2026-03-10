@@ -1,0 +1,37 @@
+defaults:
+  - shapenet_v1_vae_for_ldm
+  - _self_
+
+data:
+  frame: world
+
+inputs:
+  type:
+    - pointcloud
+    - depth
+  type_p:
+  num_points:
+    - 0.01
+    - 0.1  # 1000 to 10000 points
+  max_num_points: 10000
+
+# norm:
+#   reference: inputs.depth
+
+aug:
+  scale: 0.2
+
+train:
+  epochs: 200
+  weight_decay: 0.01
+  early_stopping: False
+  gradient_clip_val: 1.0
+
+log:
+  project: cvpr_2025_vae
+  verbose: True
+
+n_latent: 32
+n_layer: 12
+activation: new_geglu
+nerf_freqs: 10

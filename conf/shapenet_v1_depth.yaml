@@ -1,0 +1,14 @@
+defaults:
+  - shapenet_v1
+  - _self_
+
+data:
+  num_files:
+    train: 100
+    val: 1  # Actually 100 but we only use 1 for validation
+    test: 1  # Actually 100 but we only use 1 for testing
+
+inputs:
+  type: depth
+  num_points:
+  load_random: True

@@ -1,0 +1,21 @@
+defaults:
+  - mugs_sim2real_norm
+  - _self_
+
+model:
+  arch: mcdropoutnet
+
+inputs:
+  voxelize: 40
+
+points:
+  voxelize: 40
+  subsample: False
+  crop: False
+
+train:
+  batch_size: 32
+  lr: 1e-3
+
+val:
+  batch_size: 32

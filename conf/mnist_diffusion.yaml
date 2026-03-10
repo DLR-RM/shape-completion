@@ -1,0 +1,36 @@
+defaults:
+  - config
+  - _self_
+
+data:
+  train_ds:
+    - mnist
+  val_ds:
+    - mnist
+  test_ds:
+    - mnist
+
+model:
+  arch: grid_diffusion
+
+train:
+  batch_size: 512
+  model_selection_metric: val/loss
+  epochs: 100
+  lr: 1.953125e-06  # 1e-3 / 512
+  scheduler: LinearWarmupCosineAnnealingLR
+
+test:
+  batch_size: ${train.batch_size}
+  split: train
+
+vis:
+  num_instances: 51200
+
+log:
+  name: mnist
+  project: image_diffusion
+
+resolution: 32
+ndim: 2
+channels: 1

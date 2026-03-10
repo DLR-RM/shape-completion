@@ -1,0 +1,34 @@
+defaults:
+  - automatica_2023_kinect
+  - _self_
+
+model:
+  arch: 3dshape2vecset
+  compile: True
+
+data:
+  cache: True
+
+inputs:
+  max_num_points: 10000
+
+points:
+  load_surface: False
+
+train:
+  precision: bf16-mixed
+  batch_size: 128
+  lr: 3.125e-6
+  min_lr: 1.953125e-9
+  scheduler: LinearWarmupCosineAnnealingLR
+  warmup_frac: 0.011
+  weight_decay: 0.05
+  epochs: 1000
+  load_surface_points: True
+  early_stopping: False
+
+vis:
+  num_query_points: 10000
+
+log:
+  project: automatica_2024

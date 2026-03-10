@@ -1,0 +1,276 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "shape-completion"
+version = "2.0.0"
+description = "Shape completion with deep learning"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+# Minimal base dependencies (build tools only)
+dependencies = ["cython>=3.0", "ninja>=1.11"]
+
+[project.optional-dependencies]
+# =============================================================================
+# Submodule dependency groups
+# =============================================================================
+utils = [
+    "open3d>=0.18",
+    "einops>=0.8",
+    "trimesh>=4.0",
+    "h5py>=3.10",
+    "hydra-core>=1.3",
+    "hydra-colorlog>=1.2",
+    "pykdtree>=1.4",
+    "tqdm>=4.66",
+    "matplotlib>=3.8",
+    "scipy>=1.11",
+    "pillow>=10.3",
+    "joblib>=1.3",
+]
+dataset = [
+    "shape-completion[utils]",
+    "binvox>=0.1",
+    "fast-simplification>=0.1",
+    "pyrender>=0.1",
+    "scikit-image>=0.22",
+    "scikit-learn>=1.5",
+    "pandas>=2.2",
+    "psutil>=6.0",
+]
+models = [
+    "shape-completion[utils]",
+    "jaxtyping>=0.2",
+    "vector-quantize-pytorch>=1.18",
+    "nvidia-ml-py>=13.0.0",
+]
+train = ["shape-completion[utils,dataset,models]", "tensorboardx>2.6"]
+eval = ["shape-completion[utils,dataset,models]", "tabulate>=0.9"]
+inference = ["shape-completion[utils,models]", "pyrender>=0.1", "tabulate>=0.9"]
+visualize = ["shape-completion[utils]"]
+process = [
+    "shape-completion[utils]",
+    "pymcubes>=0.1",
+    "tyro>=0.9",
+    "loguru>=0.7",
+]
+
+# =============================================================================
+# PyTorch (optional - needed for most submodules)
+# =============================================================================
+torch = [
+    "torch<2.7",
+    "torchvision>=0.19",
+    "lightning>=2.5",
+    "lovely-tensors>=0.1",
+    "torchinfo>=1.8",
+    "torchmetrics>=1.4",
+]
+
+# =============================================================================
+# Feature extras (cross-cutting concerns)
+# =============================================================================
+test = ["pytest>=8.3", "pytest-cov>=7.0"]
+wandb = ["wandb>=0.21"]
+plotly = ["plotly>=5.22"]
+fid = ["clean-fid>=0.1"]
+exr = ["opencv-contrib-python>=4.9"]
+
+# Git-based dependencies (may need special handling)
+git = [
+    "easy-o3d@git+https://github.com/hummat/easy-o3d.git@master",
+    "pytorch3dunet@git+https://github.com/hummat/pytorch-3dunet.git@develop",
+]
+
+# =============================================================================
+# Heavy/optional extras
+# =============================================================================
+# BlenderProc rendering
+blenderproc = [
+    "blenderproc>=2.7",
+    "pybullet>=3.2",
+    "pymeshlab>=2023.12,<2025",
+    "opencv-contrib-python>=4.9",
+    "coacd>=1.0",
+]
+# Path tracing (bpy can be problematic)
+pathtracing = ["rich>=13.7", "bpy>=4.0", "blenderproc>=2.7"]
+# Diffusion models
+diffusion = [
+    "diffusers[torch]@git+https://github.com/hummat/diffusers.git@vdm-scheduler",
+]
+# Background removal
+rembg = ["rembg>=2.0", "pymatting>=1.1.15"]
+# 8-bit optimization (platform-specific)
+8bit = ["bitsandbytes>=0.43"]
+# Hypergradient optimizer (niche)
+hypergradient = ["gradient_descent_the_ultimate_optimizer>=1.0"]
+# Uncertain regions (needs mathutils)
+compile = ["mathutils>=3.3"]
+
+# =============================================================================
+# Convenience groups
+# =============================================================================
+# Core ML workflow (train + eval + inference)
+ml = ["shape-completion[torch,train,eval,inference,git]"]
+# Common dependencies (safe on all platforms)
+full = [
+    "shape-completion[torch,train,eval,inference,visualize,process,test,wandb,plotly,fid,git]",
+]
+# Everything
+all = [
+    "shape-completion[full,blenderproc,pathtracing,diffusion,rembg,8bit,hypergradient,compile]",
+]
+
+[project.scripts]
+train = "train.scripts.train:main"
+evaluate = "eval.scripts.eval:main"
+generate = "eval.scripts.generate:main"
+mesh_eval = "eval.scripts.mesh_eval:main"
+gen_eval = "eval.scripts.gen_eval:main"
+inference = "inference.scripts.inference_pointcloud:main"
+vis_data = "visualize.scripts.vis_data:main"
+vis_inference = "visualize.scripts.vis_inference:main"
+render = "visualize.scripts.render:main"
+process_dataset = "dataset.scripts.process_dataset:main"
+find_pose = "process.scripts.generate_physics_poses:main"
+make_watertight = "process.scripts.make_watertight:main"
+render_kinect = "process.scripts.render_kinect:main"
+render_kinect_parallel = "process.scripts.render_kinect_parallel:main"
+find_uncertain_regions = "process.scripts.find_uncertain_regions:main"
+add_kinect_sim = "process.scripts.add_kinect_sim:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=7.0",
+    "ruff>=0.9",
+    "pyright>=1.1.390",
+    "fake-bpy-module-4.4",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "conf",
+    "dataset",
+    "eval",
+    "inference",
+    "libs",
+    "models",
+    "process",
+    "train",
+    "utils",
+    "visualize",
+]
+
+[tool.uv]
+index-strategy = "unsafe-best-match"
+extra-index-url = ["https://download.pytorch.org/whl/cu124"]
+# torch-scatter needs prebuilt wheels from PyG (torch-version-specific):
+# uv pip install torch-scatter --find-links https://data.pyg.org/whl/torch-$(python -c "import torch; print(torch.__version__)").html
+
+[tool.pytest.ini_options]
+testpaths = [
+    "libs/tests",
+    "utils/tests",
+    "dataset/tests",
+    "models/tests",
+    "train/tests",
+    "eval/tests",
+    "inference/tests",
+    "visualize/tests",
+    "process/tests",
+]
+python_files = "test_*.py"
+python_functions = "test_*"
+addopts = "-q -m \"not renderer\""
+markers = [
+    "renderer: renderer/open3d tests that are unstable on some headless/GPU setups",
+    "gpu: tests requiring CUDA/GPU acceleration",
+    "integration: end-to-end or long-running integration tests",
+]
+
+[tool.coverage.report]
+# The package-wide pytest-cov percentage is informational only.
+# The enforced gate lives in scripts/test/check_source_coverage.sh.
+fail_under = 0
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = [
+    "utils",
+    "dataset",
+    "models",
+    "train",
+    "eval",
+    "inference",
+    "visualize",
+    "process",
+    "libs",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "RUF"]
+ignore = [
+    "E501", # Line too long (handled by formatter)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"models/__init__.py" = [
+    "F403", # model factory uses intentional star import from models.src
+    "F405", # names are provided via the intentional star import above
+]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "utils",
+    "dataset",
+    "models",
+    "train",
+    "eval",
+    "inference",
+    "visualize",
+    "process",
+    "libs",
+    "conf",
+]
+
+[tool.pyright]
+include = [
+    "utils",
+    "dataset",
+    "models",
+    "train",
+    "eval",
+    "inference",
+    "visualize",
+    "process",
+    "libs",
+]
+exclude = [
+    "**/__pycache__",
+    "**/.venv",
+    ".git",
+    ".venv",
+    "build",
+    "dist",
+    ".pytest_cache",
+    ".ruff_cache",
+    "**/build",
+    "libs/coacd",
+    "process/scripts/blender_load.py",
+    "process/scripts/render_blenderproc.py",
+    "process/scripts/generate_physics_poses.py",
+    "visualize/src/renderer.py",
+]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+reportMissingImports = "warning"
+reportMissingModuleSource = "warning"
+venvPath = "."
+venv = ".venv"

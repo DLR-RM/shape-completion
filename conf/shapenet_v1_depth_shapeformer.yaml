@@ -1,0 +1,29 @@
+defaults:
+  - shapenet_v1_depth
+  - _self_
+
+model:
+  arch: shapeformer
+  vqdif_weights: out/vqdif/shapeformer/vqdif/model_best.pt
+
+inputs:
+  num_points: 16384
+
+points:
+  subsample: False
+  crop: False
+
+pointcloud:
+  num_points: 32768
+
+train:
+  batch_size: 2
+  model_selection_metric: val/loss
+  lr: 1e-5
+
+vis:
+  occupancy: False
+  pointcloud: True
+
+log:
+  top_k: 1

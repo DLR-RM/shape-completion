@@ -1,0 +1,53 @@
+defaults:
+  - config
+  - _self_
+
+files:
+  pointcloud: models/samples/surface.npz
+  points:
+    train:
+      - models/samples/uniform_random.npz
+      - models/samples/uniform_sphere_0.npz
+      - models/samples/uniform_sphere_1.npz
+      - models/samples/uniform_sphere_2.npz
+      - models/samples/uniform_sphere_3.npz
+      - models/samples/uniform_sphere_4.npz
+      - models/samples/uniform_sphere_5.npz
+    val:
+      - models/samples/uniform_random.npz
+      - models/samples/uniform_sphere_0.npz
+      - models/samples/uniform_sphere_1.npz
+      - models/samples/uniform_sphere_2.npz
+      - models/samples/uniform_sphere_3.npz
+      - models/samples/uniform_sphere_4.npz
+      - models/samples/uniform_sphere_5.npz
+    test:
+      - models/samples/uniform_random.npz
+      - models/samples/uniform_sphere_0.npz
+      - models/samples/uniform_sphere_1.npz
+      - models/samples/uniform_sphere_2.npz
+      - models/samples/uniform_sphere_3.npz
+      - models/samples/uniform_sphere_4.npz
+      - models/samples/uniform_sphere_5.npz
+  mesh: model_normalized.off
+
+model:
+  arch: conv_onet_grid
+
+data:
+  train_ds:
+    - shapenet_v2
+  val_ds:
+    - shapenet_v2
+  test_ds:
+    - shapenet_v2
+  mesh_dir: models
+
+train:
+  epochs: 100
+
+val:
+  freq: 1
+
+log:
+  freq: 100

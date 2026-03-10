@@ -1,0 +1,30 @@
+defaults:
+  - shapenet_v1
+  - _self_
+
+files:
+  points:
+    train:
+      - samples/uniform_random.npz
+      - samples/uniform_sphere_0.npz
+      - samples/uniform_sphere_1.npz
+      - samples/uniform_sphere_2.npz
+      - samples/uniform_sphere_3.npz
+      - samples/uniform_sphere_4.npz
+      - samples/uniform_sphere_5.npz
+    val:
+      - samples/uniform_random.npz
+      - samples/uniform_sphere_0.npz
+      - samples/uniform_sphere_1.npz
+      - samples/uniform_sphere_2.npz
+      - samples/uniform_sphere_3.npz
+      - samples/uniform_sphere_4.npz
+      - samples/uniform_sphere_5.npz
+    test:
+      - samples/uniform_random.npz
+      - samples/uniform_sphere_0.npz
+      - samples/uniform_sphere_1.npz
+      - samples/uniform_sphere_2.npz
+      - samples/uniform_sphere_3.npz
+      - samples/uniform_sphere_4.npz
+      - samples/uniform_sphere_5.npz

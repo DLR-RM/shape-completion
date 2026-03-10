@@ -1,0 +1,19 @@
+defaults:
+  - shapenet_v1_seg_inputs
+  - _self_
+
+data:
+  num_files:
+    train: 100
+    val: 1  # Actually 100 but we only use 1 for validation
+    test: 1  # Actually 100 but we only use 1 for testing
+  unscale: True
+  frame: net
+
+inputs:
+  type: depth
+  load_random: True
+
+norm:
+  center: True
+  scale: True

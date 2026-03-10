@@ -1,0 +1,29 @@
+defaults:
+  - shapenet_v1
+  - _self_
+
+files:
+  mesh: normalized.ply
+
+data:
+  train_ds:
+    - automatica
+  val_ds:
+    - automatica
+  test_ds:
+    - automatica
+  num_files:
+    train: 700
+    val: 100
+    test: 200
+  rotate: True
+  cache: True
+
+mesh:
+  norm: True
+
+points:
+  cache: True
+
+pointcloud:
+  cache: True

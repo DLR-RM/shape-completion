@@ -1,0 +1,54 @@
+defaults:
+  - mugs_sim2real_norm
+  - _self_
+
+model:
+  arch: realnvp
+
+inputs:
+  num_points:
+  cache: False
+
+points:
+  subsample: False
+  crop: False
+  cache: False
+
+pointcloud:
+  bbox: True
+
+aug:
+  noise:
+  edge_noise:
+  remove_angle: False
+  bbox_jitter:
+    - 0.1
+    - 0.1
+    - 0.1
+
+train:
+  lr: 1e-5
+  scale_lr: False
+  batch_size: 1500
+  epochs: 1000
+  model_selection_metric: val/loss
+  scheduler: ReduceLROnPlateau
+  early_stopping: True
+
+val:
+  batch_size: 1500
+  freq: 1
+
+vis:
+  occupancy: False
+  pointcloud: True
+  bbox: True
+
+log:
+  freq: 10
+
+load:
+  keys_to_keep:
+    - index
+    - inputs.path
+    - bbox

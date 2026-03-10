@@ -1,0 +1,20 @@
+defaults:
+  - shapenet_v1_depth
+  - _self_
+
+model:
+  arch: resnet18_conv_onet_plane
+
+data:
+  scale_multiplier: 1
+
+inputs:
+  project: False
+
+norm:
+  padding: 0
+
+vis:
+  frame: True
+  box: False
+  cam: False

@@ -1,0 +1,18 @@
+defaults:
+  - automatica
+  - _self_
+
+data:
+  scale: True
+  scale_multiplier: 1.0
+  rotate: True
+  rot_x:
+
+inputs:
+  type: depth
+  num_points:
+  load_random: True
+
+norm:
+  center: True
+  scale: True

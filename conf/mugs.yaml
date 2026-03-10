@@ -1,0 +1,78 @@
+defaults:
+  - shapenet
+  - _self_
+
+files:
+  pointcloud: samples/surface.npy
+  points:
+    train:
+      - samples/surface_random.npy
+      - samples/uniform_sphere.npy
+    val:
+      - samples/uniform_random.npy
+      - samples/uniform_sphere.npy
+    test:
+      - samples/uniform_random.npy
+      - samples/uniform_sphere.npy
+  normals: samples/normals.npy
+  mesh:
+  split:
+    train: all.lst
+    val: all.lst
+    test: all.lst
+
+model:
+  arch: conv_onet_grid
+
+data:
+  categories:
+    - "03797390"
+  num_files:
+    train: 100
+    val: 10
+    test: 10
+  num_shards:
+    train: 10
+    val: 10
+    test: 20
+  unscale: True
+  undistort: True
+  frame: net
+  cache: True
+
+inputs:
+  type: depth_bp
+  num_points:
+  cache: True
+
+points:
+  load_uncertain: False
+  crop: True
+  cache: True
+
+pointcloud:
+  cache: True
+
+mesh:
+  data_dir: mesh
+  cache: True
+
+norm:
+  center: xyz
+
+aug:
+  noise: 0.005
+  edge_noise: 0.01
+  remove_angle: True
+  scale: 6
+
+train:
+  batch_size: 16
+  epochs: 100
+
+val:
+  batch_size: 16
+  freq: 0.5
+
+log:
+  freq: 100

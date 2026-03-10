@@ -1,0 +1,21 @@
+defaults:
+  - shapenet_v1_seg_points_depth
+  - _self_
+
+cls:
+  num_classes: 16
+  weight: 0.5
+
+seg:
+  weight: 0.5
+
+log:
+  metrics:
+    - cls_acc_macro
+    - seg_iou_macro
+    - seg_f1_macro
+    - seg_precision_macro
+    - seg_recall_macro
+    - seg_auprc_macro
+    - seg_ece
+    - seg_acc_macro

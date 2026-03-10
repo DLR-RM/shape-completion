@@ -1,0 +1,40 @@
+defaults:
+  - cvpr_2025_vae
+  - _self_
+
+model:
+  arch: 3dshape2vecset
+
+inputs:
+  num_points:
+  type: depth
+
+norm:
+  reference: pointcloud
+
+aug:
+  scale:
+  # noise:
+
+log:
+  project: cvpr_2025_depth
+
+load:
+  keys_to_keep:
+    - index
+    - category.id
+    - category.name
+    - category.index
+    - inputs
+    - inputs.path
+    - inputs.name
+    - inputs.image
+    - inputs.mask
+    - inputs.depth
+    - inputs.normals
+    - inputs.intrinsic
+    - inputs.extrinsic
+    - inputs.width
+    - inputs.height
+    - points
+    - points.occ

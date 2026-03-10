@@ -1,0 +1,27 @@
+defaults:
+  - shapenet_v1_depth
+  - _self_
+
+data:
+  scale: True
+  frame: net
+
+inputs:
+  type: kinect
+  data_dir: shapenet_v1_fused_kinect
+
+norm:
+  center: True
+  scale: True
+
+train:
+  early_stopping: True
+  scheduler: ReduceLROnPlateau
+
+test:
+  run: True
+  dir: automatica_2023_test
+  filename: depth_points_net.ply
+
+log:
+  project: automatica_2023

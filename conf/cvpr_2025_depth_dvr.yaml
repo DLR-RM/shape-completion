@@ -1,0 +1,43 @@
+defaults:
+  - cvpr_2025_depth
+  - _self_
+
+files:
+  points:
+    train:
+    
+model:
+  arch: onet_dvr
+  compile: False
+
+inputs:
+  type: normals
+  project: False
+  crop: True
+  resize: 224
+  nerf: False
+
+points:
+  nerf: False
+
+implicit:
+  dvr: True
+
+train:
+  precision: 32-true
+  num_query_points:
+
+val:
+  visualize: True
+  
+vis:
+  inputs: False
+  render: color+normals
+  colors: True
+  normals: True
+  num_query_points: 16384
+
+log:
+  project: dvr
+  verbose: True
+  pretty: True

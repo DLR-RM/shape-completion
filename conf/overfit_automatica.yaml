@@ -1,0 +1,36 @@
+defaults:
+  - automatica_2023_kinect
+  - _self_
+
+data:
+  train_ds:
+    - automatica
+  val_ds:
+    - automatica
+  test_ds:
+    - automatica
+  num_files:
+    train: 900
+    val: 100
+  cache: True
+
+inputs:
+  data_dir:
+  load_random: False
+
+points:
+  cache: True
+
+pointcloud:
+  cache: True
+
+mesh:
+  cache: True
+
+train:
+  batch_size: 16
+  accumulate_grad_batches: 2
+
+val:
+  batch_size: 16
+  freq: 0.5

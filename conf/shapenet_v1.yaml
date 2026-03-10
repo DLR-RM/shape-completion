@@ -1,0 +1,62 @@
+defaults:
+  - config
+  - _self_
+
+files:
+  pointcloud: samples/surface.npz
+  points:
+    train:
+      - samples/uniform_random.npz
+      - samples/surface_random.npz
+      - samples/uniform_sphere_0.npz
+      - samples/uniform_sphere_1.npz
+      - samples/uniform_sphere_2.npz
+      - samples/uniform_sphere_3.npz
+      - samples/uniform_sphere_4.npz
+      - samples/uniform_sphere_5.npz
+    val:
+      - samples/uniform_random.npz
+      - samples/surface_random.npz
+      - samples/uniform_sphere_0.npz
+      - samples/uniform_sphere_1.npz
+      - samples/uniform_sphere_2.npz
+      - samples/uniform_sphere_3.npz
+      - samples/uniform_sphere_4.npz
+      - samples/uniform_sphere_5.npz
+    test:
+      - samples/uniform_random.npz
+      - samples/surface_random.npz
+      - samples/uniform_sphere_0.npz
+      - samples/uniform_sphere_1.npz
+      - samples/uniform_sphere_2.npz
+      - samples/uniform_sphere_3.npz
+      - samples/uniform_sphere_4.npz
+      - samples/uniform_sphere_5.npz
+  mesh: model.off
+
+data:
+  train_ds:
+    - shapenet_v1_fused
+
+points:
+  crop: True
+  load_all: False  # Load points based on scale
+  load_surface: True
+
+train:
+  epochs: 100
+
+log:
+  freq: 100
+
+load:
+  keys_to_keep:
+    - index
+    - category.id
+    - category.name
+    - category.index
+    - inputs
+    - inputs.path
+    - inputs.name
+    - points
+    - points.occ

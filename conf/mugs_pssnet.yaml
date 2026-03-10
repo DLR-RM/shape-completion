@@ -1,0 +1,32 @@
+defaults:
+  - mugs_sim2real_norm
+  - _self_
+
+model:
+  arch: pssnet
+
+inputs:
+  voxelize: 64
+  cache: False
+
+points:
+  voxelize: 64
+  subsample: False
+  crop: False
+
+pointcloud:
+  bbox: True
+
+train:
+  lr: 1e-3
+  scale_lr: False
+  batch_size: 16
+  epochs: 100
+  scheduler: ReduceLROnPlateau
+  early_stopping: True
+
+val:
+  batch_size: 16
+
+vis:
+  bbox: True

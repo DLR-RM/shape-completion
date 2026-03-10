@@ -1,0 +1,29 @@
+defaults:
+  - shapenet_core
+  - _self_
+
+inputs:
+  image_dir: img_choy2016
+  load_random: True
+
+norm:
+  reference: pointcloud
+
+aug:
+  noise: 0.005
+
+train:
+  lr: 1e-4
+  scale_lr: False
+  optimizer: Adam
+  weight_decay: 0
+  epochs: 300
+  model_selection_metric: val/iou
+  reduction: sum_points
+  batch_size: 64
+
+val:
+  freq: 10
+
+log:
+  freq: 100

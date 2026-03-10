@@ -1,0 +1,25 @@
+# Set these to your local dataset and log paths before running experiments.
+log:                              # Training log output directory
+backup:                           # Optional backup directory for logs
+
+shapenet_v1:                      # ShapeNetCore.v1 (raw)
+shapenet_v1_onet:                 # ShapeNetCore.v1 (Occupancy Networks format)
+shapenet_v1_disn:                 # ShapeNetCore.v1 (DISN rendered images)
+shapenet_v1_fused:                # ShapeNetCore.v1 (watertight/fused meshes)
+shapenet_v1_fused_kinect:         # ShapeNetCore.v1 (fused + Kinect-simulated depth)
+completion3d:                     # Completion3D benchmark (ShapeNet 16384-point clouds)
+ycb:                              # YCB object models
+automatica:                       # Automatica graspable objects
+bop:                              # BOP benchmark datasets
+automatica_2023_test:             # Automatica 2023 test set
+automatica_2023_dominik:          # Automatica 2023 annotated set
+modelnet40:                       # ModelNet40 (sampled)
+partnet:                          # PartNet segmentation benchmark
+cifar10:                          # CIFAR-10
+mnist:                            # MNIST
+fmnist:                           # Fashion-MNIST
+dtu:                              # DTU MVS dataset
+coco:                             # COCO (for instance segmentation)
+tabletop:                         # Tabletop scenes
+tabletop_pile:                    # Tabletop pile scenes
+graspnet:                         # GraspNet-1Billion

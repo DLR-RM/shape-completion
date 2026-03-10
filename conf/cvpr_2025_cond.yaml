@@ -1,0 +1,26 @@
+defaults:
+  - cvpr_2025
+  - _self_
+
+data:
+  num_files:
+    train: 100
+  scale: True
+  # frame: net
+
+inputs:
+  type:
+    - pointcloud
+    - depth
+  load_random: True
+  num_points:
+  max_num_points: 10000
+
+# norm:
+#   reference: inputs.depth
+
+cond_key: inputs.depth
+cond_arch: 3dshape2vecset
+n_layer_cond: 12
+activation_cond: new_geglu
+nerf_freqs_cond: 10

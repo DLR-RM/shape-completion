@@ -1,0 +1,31 @@
+defaults:
+  - shapenet_v1_no_surface
+  - _self_
+
+cls:
+  occupancy: False
+  num_classes: 57
+  weight: 1.0
+
+train:
+  optimizer: AdamW8bit
+  precision: bf16-mixed
+  epochs: 300
+  model_selection_metric: val/cls_acc_micro
+
+inputs:
+  num_points: 2048
+
+val:
+  num_query_points: 16384
+
+aug:
+  noise: 0.005
+
+vis:
+  occupancy: False
+
+log:
+  project: classification
+  metrics:
+    - cls_acc_macro

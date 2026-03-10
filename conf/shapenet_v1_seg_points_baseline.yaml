@@ -1,0 +1,19 @@
+defaults:
+  - shapenet_v1_no_surface
+  - _self_
+
+train:
+  optimizer: AdamW8bit
+  precision: bf16-mixed
+  epochs: 300
+
+inputs:
+  num_points: 2048
+
+val:
+  num_query_points: 16384
+
+log:
+  project: segmentation
+
+partnet: True

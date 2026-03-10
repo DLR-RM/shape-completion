@@ -1,0 +1,29 @@
+defaults:
+  - shapenet_v2
+  - _self_
+
+data:
+  num_files:
+    train: 100
+    val: 100
+    test: 1  # 100
+  unscale: True
+  frame: net
+  random_points: False
+  crop_points: True
+
+inputs:
+  type: depth
+  num_input_points: 0
+  random: True
+
+aug:
+  noise: 0.002
+  edge_noise: 0.01
+  remove_angle: True
+
+train:
+  epochs: 1
+
+val:
+  freq: 0.01

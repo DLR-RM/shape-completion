@@ -1,0 +1,16 @@
+defaults:
+  - shapenet_v1_autoenc
+  - _self_
+
+model:
+  arch: latent_diffusion
+
+train:
+  batch_size: 256
+  epochs: 8000
+  warmup_frac: 0.1
+  lr: 3.90625e-07  # 1e-4 w/ batch size 256
+  min_lr: 3.90625e-09  # 1e-5 w/ batch size 256
+
+log:
+  project: latent_diffusion

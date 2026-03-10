@@ -1,0 +1,18 @@
+defaults:
+  - mnist_diffusion
+  - _self_
+
+data:
+  train_ds:
+    - fmnist
+  val_ds:
+    - fmnist
+  test_ds:
+    - fmnist
+
+log:
+  name: fmnist
+
+resolution: 32
+ndim: 2
+channels: 1

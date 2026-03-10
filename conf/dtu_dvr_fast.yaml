@@ -1,0 +1,18 @@
+defaults:
+  - dtu_dvr
+  - _self_
+
+implicit:
+  step_func: cosine
+  num_steps:
+    - 16
+    - 128
+
+train:
+  lr: 1e-3
+  epochs: 1000
+  weight_decay: 0.01
+  gradient_clip_val: 1.0
+
+val:
+  freq: 1

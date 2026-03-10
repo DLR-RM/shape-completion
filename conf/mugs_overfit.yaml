@@ -1,0 +1,29 @@
+defaults:
+  - mugs
+  - _self_
+
+files:
+  points:
+    train:
+      - samples/uniform_random.npy
+      - samples/uniform_sphere.npy
+  split:
+    train: overfit.lst
+    val: overfit.lst
+    test: overfit.lst
+
+data:
+  load_mesh: True
+  uncertain: False
+
+aug:
+  remove_angle: False
+  scale:
+
+val:
+  freq: 1
+
+vis:
+  mesh: True
+  box: False
+  frame: False

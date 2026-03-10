@@ -1,0 +1,39 @@
+defaults:
+  - shapenet_v1_vae_for_ldm
+  - _self_
+
+files:
+  points:
+    train:
+    val:
+      - samples/uniform_random.npz
+    test:
+      - samples/uniform_random.npz
+
+data:
+  scale: False
+  frame: world
+
+model:
+  arch: ldm
+
+inputs:
+  type: pointcloud
+  type_p:
+
+aug:
+  scale:
+
+train:
+  lr: 7.8125e-07  # 1e-4 w/ batch size 128
+  epochs: 1000
+  model_selection_metric: val/loss
+
+val:
+  freq: 5
+  visualize: True
+  mesh: fid
+
+log:
+  project: ldm_2024
+  verbose: True

@@ -1,0 +1,17 @@
+defaults:
+  - shapenet_v1_autoenc
+  - _self_
+
+model:
+  arch: 3dshape2vecset_vae
+
+norm:
+  center: True
+
+aug:
+  noise: 0.005
+  scale: 0.02
+
+train:
+  weight_decay: 0.05
+  early_stopping: True

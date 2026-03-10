@@ -1,0 +1,35 @@
+defaults:
+  - automatica_2023_kinect
+  - _self_
+
+files:
+  points:
+    test:
+      - samples/uniform_random.npz
+      # - samples/surface_random.npz
+      - samples/uniform_sphere_0.npz
+      - samples/uniform_sphere_1.npz
+      - samples/uniform_sphere_2.npz
+      - samples/uniform_sphere_3.npz
+      - samples/uniform_sphere_4.npz
+      - samples/uniform_sphere_5.npz
+  mesh: normalized.ply
+
+model:
+  arch: vqdif
+
+data:
+  train_ds:
+    - automatica
+  val_ds:
+    - automatica
+  test_ds:
+    - automatica
+  num_files:
+    test: 100
+
+inputs:
+  data_dir:
+
+points:
+  subsample: False

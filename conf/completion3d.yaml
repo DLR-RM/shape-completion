@@ -1,0 +1,12 @@
+defaults:
+  - defaults
+  - _self_
+
+
+data:
+  train_ds:
+    - completion3d
+  val_ds:
+    - completion3d
+  test_ds:
+    - completion3d

@@ -1,0 +1,22 @@
+defaults:
+  - cvpr_2025_depth
+  - _self_
+
+model:
+  arch: 3dshape2vecset_cls
+
+cls:
+  occupancy: False
+  num_classes: 57
+
+train:
+  early_stopping: True
+  model_selection_metric: val/cls_acc_micro
+
+vis:
+  occupancy: False
+
+log:
+  project: cvpr_2025_depth_cls
+  metrics:
+    - cls_acc_micro

@@ -1,0 +1,52 @@
+defaults:
+  - tabletop_3d
+  - _self_
+
+norm:
+  center: False
+  scale: False
+
+points:
+  crop: False
+  volume:
+
+train:
+  num_query_points: 10000
+
+load:
+  keys_to_keep:
+    - index
+    - category.id
+    - category.name
+    - category.index
+    - inputs
+    - inputs.image
+    - inputs.masks
+    - inputs.labels
+    - inputs.colors
+    - inputs.normals
+    - inputs.skip
+    - inputs.name
+    - inputs.path
+    - inputs.intrinsic
+    - inputs.extrinsic
+    - inputs.width
+    - inputs.height
+    - inputs.near
+    - inputs.far
+    - points
+    - points.occ
+    - points.labels
+    - points.path
+    - points.name
+    - pointcloud
+    - pointcloud.path
+    - pointcloud.name
+    - mesh.vertices
+    - mesh.triangles
+    - mesh.path
+    - mesh.name
+
+collate_3d: list
+sample_free:
+apply_pose: False

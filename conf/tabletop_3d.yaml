@@ -1,0 +1,62 @@
+defaults:
+  - tabletop
+  - _self_
+
+files:
+  pointcloud: # samples/surface.npz
+  points:
+    train: samples/uniform_random.npz
+  mesh: # model.off
+
+inputs:
+  type: depth
+  num_points:
+  max_num_poinst: 10000
+
+points:
+  volume: cube
+
+norm:
+  center: True
+  scale: True
+  reference: points
+
+aug:
+  noise: 0.005
+
+load:
+  keys_to_keep:
+    - index
+    - category.id
+    - category.name
+    - category.index
+    - inputs
+    - inputs.image
+    - inputs.colors
+    - inputs.normals
+    - inputs.skip
+    - inputs.name
+    - inputs.path
+    - inputs.intrinsic
+    - inputs.extrinsic
+    - inputs.width
+    - inputs.height
+    - inputs.near
+    - inputs.far
+    - points
+    - points.occ
+    - points.labels
+    - points.path
+    - points.name
+    - pointcloud
+    - pointcloud.path
+    - pointcloud.name
+    - mesh.vertices
+    - mesh.triangles
+    - mesh.path
+    - mesh.name
+
+load_3d: True
+collate_3d: size
+scale: 1.0
+patch_size:

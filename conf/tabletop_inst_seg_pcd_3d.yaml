@@ -1,0 +1,78 @@
+defaults:
+  - tabletop_inst_seg_pcd
+  - _self_
+
+files:
+  points:
+    train: samples/uniform_random.npz
+
+model:
+  dropout: 0.05
+
+inputs:
+  max_num_points:
+
+points:
+  max_num_points:
+  crop: cube
+  cache: True
+
+train:
+  num_query_points: 10000
+  scheduler: ReduceLROnPlateau
+  patience_factor: 5
+  lr_reduction_factor: 0.5
+  min_lr: 1e-10
+  model_selection_metric: val/map
+  early_stopping: True
+
+val:
+  num_query_points: 100000
+
+aug:
+  noise: True
+  rotate: True
+  scale: True
+
+load:
+  keys_to_keep:
+    - index
+    - category.id
+    - category.name
+    - category.index
+    - inputs
+    - inputs.depth
+    - inputs.image
+    - inputs.colors
+    - inputs.normals
+    - inputs.labels
+    - inputs.width
+    - inputs.height
+    - inputs.intrinsic
+    - inputs.extrinsic
+    - inputs.skip
+    - inputs.name
+    - inputs.path
+    - points
+    - points.occ
+    - points.labels
+    - points.name
+    - points.path
+    - points.lengths
+    - pointcloud
+    - pointcloud.normals
+    - pointcloud.path
+    - pointcloud.name
+    - pointcloud.lengths
+    - mesh
+    - mesh.vertices
+    - mesh.triangles
+    - mesh.path
+    - mesh.name
+    - mesh.lengths
+    - mesh.num_vertices
+    - mesh.num_triangles
+
+load_3d: true
+collate_3d: stack
+sample_free: cube

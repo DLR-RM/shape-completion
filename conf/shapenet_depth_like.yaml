@@ -1,0 +1,20 @@
+defaults:
+  - shapenet_v1_legacy
+  - _self_
+
+data:
+  crop_points: True
+  frame: net
+
+inputs:
+  type: depth_like
+  num_input_points: 0
+
+norm:
+  normalize: center_scale
+
+aug:
+  rotate: yx
+  noise: 0.001
+  edge_noise: 0.005
+  remove_angle: True

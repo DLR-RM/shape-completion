@@ -1,0 +1,43 @@
+defaults:
+  - automatica_2023_kinect
+  - _self_
+
+model:
+  arch: point_tr
+  compile: True
+
+inputs:
+  num_points: 3000
+
+points:
+  load_surface: False
+
+train:
+  lr: 1e-4
+  scale_lr: False
+  precision: bf16-mixed
+  betas:
+    - 0.9
+    - 0.95
+  weight_decay: 1e-1
+  gradient_clip_val: 1.0
+  optimizer: AdamW8bit
+  scheduler: LinearWarmupCosineAnnealingLR
+  early_stopping: True
+
+val:
+  num_query_points: 10000
+
+vis:
+  resolution: 64
+
+log:
+  name: nano_gpt2
+  gradients: True
+
+n_layer: 12
+n_head: 12
+n_embd: 768
+dropout: 0
+bias: False
+implementation: karpathy

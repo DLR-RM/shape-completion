@@ -1,0 +1,377 @@
+defaults:
+  - dirs: default
+  - override hydra/job_logging: colorlog
+  - override hydra/hydra_logging: colorlog
+  - _self_
+
+hydra:
+  run:
+    dir: ./train/logs/hydra/${now:%Y-%m-%d_%H-%M-%S}
+  job:
+    chdir: False
+
+script: main
+
+files:
+  pointcloud:
+  points:
+    train:
+    val: ${files.points.train}
+    test: ${files.points.val}
+  normals:
+  voxels:
+  mesh:
+  split:
+    train:
+    val:
+    test:
+  suffix: ""
+
+misc:
+  seed: 0
+
+model:
+  arch:
+  weights:
+  checkpoint:
+  load_best: False
+  reduction: mean
+  compile: False
+  bias: True
+  dropout: 0.0
+  norm:
+  activation: relu
+  attn:
+  up:
+  down:
+  use_ws:
+  average:
+  ema_decay:
+  swr_lr:
+  attn_backend:
+  attn_mode:
+
+data:
+  train_ds:
+  val_ds: ${data.train_ds}
+  test_ds: ${data.val_ds}
+  categories:
+  objects:
+  num_files:
+    train: 1
+    val: 1
+    test: 1
+  num_shards:
+    train: 1
+    val: 1
+    test: 1
+  unscale: True # Undo object scaling applied during rendering
+  undistort: True # Legacy: Only relevant for data generated with BlenderProc
+  unrotate: True # Undo object rotation applied during rendering
+  scale: False # Rescale all data fields with inputs scale
+  scale_multiplier: 1 # None = undistort
+  rotate: False # Re-apply inputs rotation to all data fields
+  frame: world
+  sdf_from_occ: False
+  convention: opencv
+  rot:
+  rot_x:
+  rot_y:
+  rot_z:
+  cache: False
+  hash_items: False
+  share_memory: False
+  dither: False
+  split: False
+
+inputs:
+  dim: 3
+  type: pointcloud
+  type_p:
+  type_key:
+  num_points: 300
+  min_num_points: 1
+  max_num_points: 100000
+  voxelize:
+  fps:
+    num_points:
+    method: gpu
+  bps:
+    num_points:
+    resolution: 32
+    feature: delta
+    basis: sphere
+    method: kdtree
+  nerf: False
+  load_random: False
+  normals: False
+  bbox: False
+  cache: False
+  data_dir:
+  image_dir:
+  cam_dir:
+  precision: 16
+  project: True
+  crop: False
+  resize:
+  permute: False
+  width:
+  height:
+
+points:
+  dim: 3
+  min_num_points: 1
+  max_num_points:
+  load_all: True
+  load_random: False
+  load_uncertain: False
+  load_surface: False
+  subsample: True
+  crop: False
+  from_mesh: False
+  from_pointcloud: False
+  voxelize:
+  nerf: False
+  bbox: False
+  cache: False
+  data_dir:
+  in_out_ratio:
+  permute: False
+
+pointcloud:
+  num_points:
+  train:
+    num_points: ${pointcloud.num_points}
+  val:
+    num_points: 100000
+  test:
+    num_points: ${pointcloud.val.num_points}
+  min_num_points: 1
+  max_num_points:
+  normals: False
+  bbox: False
+  cache: False
+  data_dir:
+  nerf: False
+  voxelize:
+  fps:
+    num_points:
+    method: gpu
+  permute: False
+  from_mesh: False
+
+mesh:
+  norm: True
+  rot:
+  bbox: False
+  cache:
+  data_dir:
+
+norm:
+  padding: 0.1
+  center:
+  scale: False
+  to_front: False
+  reference: inputs
+  method: cube
+  offset:
+  true_height: False
+  scale_factor: 1.0
+  bounds:
+    - -0.5
+    - 0.5
+
+aug:
+  noise:
+  clip_noise:
+  edge_noise:
+  border_noise: False
+  scale:
+  remove_outlier: False
+  downsample:
+  remove_angle: False
+  rotate:
+  angle_from_index: False
+  principal_rotations: False
+  upper_hemisphere: True
+  voxel_size:
+  bbox_jitter:
+  cut_plane:
+  cut_sphere:
+  move_sphere:
+  flip: True
+  translate:
+  resize:
+
+implicit:
+  threshold: 0.5
+  sdf: False
+  dvr: False
+  near: 0.2
+  far: 2.4
+  step_func: equal
+  num_steps:
+    - 16
+    - 32
+    - 64
+    - 128
+  num_pixels: 1024
+  max_batch_size: 8192
+  num_refine_steps: 8
+  refine_mode: secant
+  crop: True
+
+cls:
+  occupancy: True
+  num_classes:
+  weight: 0
+
+seg:
+  inputs: False
+  points: False
+  pointcloud: False
+  mesh: False
+  num_classes:
+  weight: 0
+
+train:
+  resume: False
+  skip: False
+  early_stopping: False
+  model_selection_metric: val/f1
+  patience_factor: 10
+  lr: 3.125e-6 # 1e-4 w/ batch size 32
+  min_lr:
+  find_lr: False
+  warmup_frac: 0.0033
+  lr_reduction_factor: 0.5
+  lr_step_size: 10
+  lr_gamma: 0.9
+  betas:
+    - 0.9
+    - 0.999
+  weight_decay: 0.01
+  gradient_clip_val:
+  scale_lr: True
+  batch_size: 32
+  find_batch_size: False
+  epochs: 10
+  loss:
+  reduction: mean
+  num_query_points: 2048
+  load_surface_points:
+  overfit_batches: False
+  fast_dev_run: False
+  optimizer: AdamW
+  scheduler:
+  hypergradients: False
+  accumulate_grad_batches: 1
+  num_batches:
+  show: False
+  precision: 32-true
+  detect_anomaly: False
+  no_aug: False
+  num_views: 1
+  shuffle: True
+
+val:
+  batch_size: ${train.batch_size}
+  num_query_points: 100000
+  load_surface_points:
+  freq: 1
+  voxels: False
+  num_batches: ${train.num_batches}
+  num_sanity: 2
+  visualize: False
+  vis_n_eval: 5
+  vis_n:
+  vis_n_category: 4
+  mesh: False
+  no_aug: False
+  reduction: ${train.reduction}
+  precision: ${train.precision}
+  shuffle: False
+
+test:
+  batch_size:
+  num_query_points:
+  load_surface_points: ${val.load_surface_points}
+  run: False
+  split: test
+  dir:
+  filename:
+  overwrite: False
+  merge: False
+  basic: True
+  no_aug: ${val.no_aug}
+  reduction: ${val.reduction}
+  metrics:
+  precision: ${val.precision}
+  eval_meshes: True
+  num_instances:
+  shuffle: False
+
+predict:
+  metrics:
+  instances: False
+
+vis:
+  split: train
+  inputs: True
+  occupancy: True
+  points: False
+  pointcloud: False
+  voxels: False
+  mesh: False
+  box: True
+  bbox: False
+  cam: False
+  frame: True
+  show: False
+  use_loader: False
+  save: False
+  num_query_points: 2097152 # 128 ** 3
+  resolution: 128
+  upsampling_steps:
+  refinement_steps: 0
+  normals: False
+  colors: False
+  simplify:
+  renderer: cycles
+  num_instances:
+  render:
+  index:
+
+log:
+  freq: 10
+  wandb: False
+  name: ${model.arch}
+  project: ${hydra:job.config_name} # i.e. name of the chosen config file
+  id:
+  version:
+  offline: False
+  profile: False
+  progress: rich
+  verbose: False
+  model: False
+  top_k: 1
+  gradients: False
+  parameters: False
+  graph: False
+  pretty: False
+  metrics:
+  summary_depth: 2
+
+load:
+  pin_memory: True
+  num_workers: -1
+  prefetch_factor: 2
+  precision: 32
+  res_modifier: 2
+  weighted:
+  hdf5: False
+  keys_to_keep:
+    - index
+    - inputs
+    - inputs.path
+    - inputs.name

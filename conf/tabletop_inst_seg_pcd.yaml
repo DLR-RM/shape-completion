@@ -1,0 +1,53 @@
+defaults:
+  - tabletop_inst_seg
+  - _self_
+
+inputs:
+  type: depth
+  num_points:
+  max_num_points: 10000
+  crop: True
+
+points:
+  max_num_points: 10000
+  crop: True
+
+norm:
+  padding: 0.0
+  scale_factor: 2.0
+  center: True
+
+train:
+  num_query_points:
+
+val:
+  num_query_points:
+
+load:
+  keys_to_keep:
+    - index
+    - category.id
+    - category.name
+    - category.index
+    - inputs
+    - inputs.image
+    - inputs.masks
+    - inputs.colors
+    - inputs.normals
+    - inputs.labels
+    - inputs.width
+    - inputs.height
+    - inputs.intrinsic
+    - inputs.extrinsic
+    - inputs.skip
+    - inputs.name
+    - inputs.path
+    - points
+    - points.occ
+    - points.labels
+    - points.name
+    - points.path
+
+stack_2d: True
+scale: 1.0
+patch_size:

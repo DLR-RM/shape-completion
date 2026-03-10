@@ -1,0 +1,21 @@
+defaults:
+  - tabletop
+  - _self_
+
+model:
+  arch: dino_inst_mask
+
+inputs:
+  type: image
+
+load:
+  keys_to_keep:
+    - index
+    - category.id
+    - category.name
+    - category.index
+    - inputs
+    - inputs.masks
+    - inputs.skip
+    - inputs.name
+    - inputs.path

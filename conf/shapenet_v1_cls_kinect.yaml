@@ -1,0 +1,24 @@
+defaults:
+  - shapenet_v1_cls
+  - _self_
+
+data:
+  num_files:
+    train: 100
+    val: 1  # Actually 100 but we only use 1 for validation
+    test: 1  # Actually 100 but we only use 1 for testing
+  unscale: True
+  unrotate: True
+  frame: net
+
+inputs:
+  load_random: True
+  type: kinect
+  data_dir: shapenet_v1_fused_kinect
+
+norm:
+  center: True
+  scale: True
+
+aug:
+  noise:

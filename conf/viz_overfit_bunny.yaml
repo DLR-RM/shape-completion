@@ -1,0 +1,14 @@
+defaults:
+  - overfit_bunny
+  - _self_
+
+data:
+  num_files:
+    val: 1
+
+val:
+  freq: 0.1
+  batch_size: 1
+  visualize: True
+  vis_n_eval: 1
+  show: True
