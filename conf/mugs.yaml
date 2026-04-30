@@ -38,24 +38,24 @@ data:
   unscale: True
   undistort: True
   frame: net
-  cache: True
+  # SharedDataLoader cache is unbounded; with the mugs working set
+  # (230 shapes × 100 files × 10 shards × heavy augmentation × 2048-point
+  # clouds) it OOMs at num_workers > 0. Re-enable per-config when running on
+  # a host with sufficient RAM.
 
 inputs:
   type: depth_bp
-  num_points:
-  cache: True
+  # Paper used `null` (variable-size depth-pixel clouds) with heterogeneous
+  # batching via PyTorch3D's Pointclouds. Pinned to 2048 here so the config
+  # works without PyTorch3D installed — slight semantic divergence (fixed-size
+  # subsample instead of variable). For exact paper reproduction:
+  #   1. Install PyTorch3D (Tier-2 / scripts/compile_cuda_libs.sh)
+  #   2. Override on CLI: `inputs.num_points=null`
+  num_points: 2048
 
 points:
   load_uncertain: False
   crop: True
-  cache: True
-
-pointcloud:
-  cache: True
-
-mesh:
-  data_dir: mesh
-  cache: True
 
 norm:
   center: xyz
@@ -76,3 +76,15 @@ val:
 
 log:
   freq: 100
+
+load:
+  keys_to_keep:
+    - index
+    - category.id
+    - category.name
+    - category.index
+    - inputs
+    - inputs.path
+    - inputs.name
+    - points
+    - points.occ
