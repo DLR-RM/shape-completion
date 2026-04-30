@@ -345,6 +345,7 @@ class BOPField(Field):
             self.icp = None
 
     def load(self, obj_dir, index, category):
+        obj_dir = str(obj_dir)
         skip = False
 
         obj_id = category
@@ -1021,6 +1022,7 @@ class BlenderProcRGBDField(Field):
         return os.path.join(shard_path, "depth", str(file).zfill(6) + ".png")
 
     def load(self, obj_dir, index, category=None):
+        obj_dir = str(obj_dir)
         if self.path_prefix:
             synthset = obj_dir.split("/")[-2]
             model = obj_dir.split("/")[-1]
@@ -1406,6 +1408,7 @@ class RGBDField(Field):
         return data
 
     def load(self, obj_dir, index, category=None):
+        obj_dir = str(obj_dir)
         if self.merge_cam_id_range or self.merge_angles > 1:
             if self.merge_angles:
                 data = self.get_merged_angles(obj_dir, index)
@@ -1651,6 +1654,7 @@ class VoxelsField(Field):
         self.use_trimesh = use_trimesh
 
     def load(self, obj_dir, index, category=None):
+        obj_dir = str(obj_dir)
         file_path = os.path.join(obj_dir, self.file)
 
         with open(file_path, "rb") as f:
