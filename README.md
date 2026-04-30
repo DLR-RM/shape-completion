@@ -340,9 +340,9 @@ See [process/README.md](process/README.md) for preprocessing scripts.
 
 **C1-specific setup (in addition to [Setup](#setup) above):**
 
-1. **`torch_scatter` (Tier-2)** — required by ConvONet's `GridEncoder`. Use the prebuilt cu124 wheel rather than a source compile:
+1. **`torch_scatter` (Tier-2)** — required by ConvONet's `GridEncoder`. Use the prebuilt wheel matching the pinned `torch 2.6.0+cu124` (installed by `uv sync`):
    ```bash
-   uv pip install torch-scatter --find-links https://data.pyg.org/whl/torch-${TORCH_VERSION}.html
+   uv pip install torch-scatter --find-links https://data.pyg.org/whl/torch-2.6.0+cu124.html
    ```
    (Skip the full `scripts/compile_cuda_libs.sh` unless you also want PyTorch3D / Detectron2 / tiny-cuda-nn.)
 
