@@ -155,8 +155,28 @@ def _parse_shapenet(
         category_ids = normalized_categories
         _log_debug_level_1(f"Categories: {category_ids}")
 
-    with open(data_dir / "taxonomy.json") as f:
-        taxonomy = json.load(f)
+    taxonomy_path = data_dir / "taxonomy.json"
+    if taxonomy_path.is_file():
+        with open(taxonomy_path) as f:
+            taxonomy = json.load(f)
+    else:
+        logger.warning(
+            f"{taxonomy_path} not found; synthesizing minimal taxonomy from on-disk category contents. "
+            "For human-readable category names, obtain taxonomy.json from ShapeNetCore.v1."
+        )
+        taxonomy = []
+        for category in category_ids:
+            category_path = data_dir / category if partnet_dir is None else partnet_dir / category
+            num_instances = (
+                sum(1 for c in category_path.iterdir() if c.is_dir())
+                if category_path.is_dir()
+                else 0
+            )
+            taxonomy.append({
+                "synsetId": category,
+                "name": category,
+                "numInstances": num_instances,
+            })
 
     metadata = dict()
     for category in category_ids:
@@ -273,14 +293,11 @@ def get_inputs_field(
             ignore_image_idx=(3, 4, 5, 6, 7, 16, 17, 18, 19, 20, 21, 36, 37, 38, 39),
         )
 
-    # Fixme: Remove this hack to deal with parts of the data coming from different directories
     suffix = ""
     if inputs_dir:
         if inputs_dir.suffix == ".hdf5":
             suffix = inputs_dir.suffix
             inputs_dir = inputs_dir.parent / inputs_dir.stem
-        if "shapenet" in str(inputs_dir).lower() and ".fused.simple" not in inputs_dir.name:
-            inputs_dir = inputs_dir.parent / (inputs_dir.name + ".fused.simple")
 
     if inputs_type in ["pointcloud", "partial", "depth_like"]:
         if inputs_dir and inputs_dir.name.endswith(".kinect"):
@@ -309,7 +326,8 @@ def get_inputs_field(
 
     if inputs_type == "depth_bp":
         return BlenderProcRGBDField(
-            data_dir=os.path.join("" if inputs_dir is None else inputs_dir, "blenderproc", split),
+            data_dir=os.path.join("blenderproc", split),
+            path_prefix=str(inputs_dir) if inputs_dir is not None else "",
             unscale=unscale,
             undistort=undistort,
             num_objects=num_objects,
