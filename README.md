@@ -336,12 +336,36 @@ See [process/README.md](process/README.md) for preprocessing scripts.
 | `process/scripts/find_uncertain_regions.py` | Computes per-query uncertain labels from multi-view depth |
 | `dataset/src/transforms.py` | `FindUncertainPoints`, `LoadUncertain` transforms |
 
-**Dataset:** ShapeNet mugs category (`03797390`), available on [Zenodo](https://zenodo.org/records/10284230).
+**Dataset:** ShapeNet mugs category (`03797390`), available on [Zenodo](https://zenodo.org/records/10284230). Extract `shapenet.tar.gz` into a single tree (e.g., `<root>/shapenet/03797390/<obj_id>/{samples,blenderproc,mesh,...}`).
+
+**C1-specific setup (in addition to [Setup](#setup) above):**
+
+1. **`torch_scatter` (Tier-2)** — required by ConvONet's `GridEncoder`. Use the prebuilt cu124 wheel rather than a source compile:
+   ```bash
+   uv pip install torch-scatter --find-links https://data.pyg.org/whl/torch-${TORCH_VERSION}.html
+   ```
+   (Skip the full `scripts/compile_cuda_libs.sh` unless you also want PyTorch3D / Detectron2 / tiny-cuda-nn.)
+
+2. **Configure `conf/dirs/default.yaml`:**
+   ```yaml
+   log: /path/to/training-logs
+   shapenet_v1_onet: /path/to/zenodo-extract/shapenet
+   ```
+
+3. **`taxonomy.json` (optional).** The Zenodo extract doesn't ship `taxonomy.json` (ShapeNet license-restricted). Without it, the loader synthesizes a minimal taxonomy — training works, but category labels appear as synset IDs in logs. To restore human-readable names, copy `taxonomy.json` from upstream ShapeNetCore.v1 into `<extract>/shapenet/taxonomy.json`.
+
+4. **PyTorch3D (optional, paper-exact reproduction only).** The shipped `mugs.yaml` pins `inputs.num_points: 2048` (fixed-size subsample) so the config trains without PyTorch3D. The published paper used `inputs.num_points: null` with PyTorch3D-backed heterogeneous batching. To restore that:
+   ```bash
+   ./scripts/compile_cuda_libs.sh                # source-build PyTorch3D
+   train -cn mugs_paper inputs.num_points=null   # restore variable-size inputs
+   ```
 
 **Commands:**
 
 ```bash
-# Preprocess: compute uncertain region labels
+# Preprocess: compute uncertain region labels.
+# Skip when using the Zenodo extract (it ships pre-computed *_uncertain.npy labels).
+# Only needed if regenerating from raw depth or for non-Zenodo data.
 find_uncertain_regions -cn shapenet_uncertain
 
 # Train main model
