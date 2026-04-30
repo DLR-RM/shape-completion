@@ -1,21 +1,38 @@
 # pyright: reportUnsupportedDunderAll=false
 
+import logging
+
 from . import utils as _utils
 from .autoregression import AutoregressiveModel, LatentAutoregressiveModel, LatentGPT
 from .completr import CompleTr
 from .conv_onet import ConvONet
-from .diffusion import (
-    DiffusersModel,
-    DiffusionModel,
-    EDMPrecond,
-    EDMTransformer,
-    GridDiffusionModel,
-    LatentDiffusionModel,
-    PVDModel,
-    UNetModel,
-    bit2int,
-    int2bit,
-)
+
+try:
+    from .diffusion import (
+        DiffusersModel,
+        DiffusionModel,
+        EDMPrecond,
+        EDMTransformer,
+        GridDiffusionModel,
+        LatentDiffusionModel,
+        PVDModel,
+        UNetModel,
+        bit2int,
+        int2bit,
+    )
+except (ModuleNotFoundError, ImportError) as err:
+    logging.warning("Unable to import diffusion models: %s", err)
+    logging.info("Install with: uv sync --extra diffusion")
+    DiffusersModel = None
+    DiffusionModel = None
+    EDMPrecond = None
+    EDMTransformer = None
+    GridDiffusionModel = None
+    LatentDiffusionModel = None
+    PVDModel = None
+    UNetModel = None
+    bit2int = None
+    int2bit = None
 from .dinov2 import (
     Dino3D,
     DinoCls,
