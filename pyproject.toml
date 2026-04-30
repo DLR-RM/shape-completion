@@ -45,7 +45,7 @@ models = [
     "vector-quantize-pytorch>=1.18",
     "nvidia-ml-py>=13.0.0",
 ]
-train = ["shape-completion[utils,dataset,models]", "tensorboardx>2.6"]
+train = ["shape-completion[utils,dataset,models]", "tensorboardx>2.6", "rich>=13"]
 eval = ["shape-completion[utils,dataset,models]", "tabulate>=0.9"]
 inference = ["shape-completion[utils,models]", "pyrender>=0.1", "tabulate>=0.9"]
 visualize = ["shape-completion[utils]"]
