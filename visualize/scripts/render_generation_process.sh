@@ -261,15 +261,17 @@ render_pointcloud() {
 }
 
 # --- Find object directories --------------------------------------------------
-mapfile -t OBJ_DIRS < <(
-    find "$INPUT_DIR" -mindepth 2 -maxdepth 2 -type d | sort
-)
-
-# Fallback: input_dir itself might be an object directory.
-if [[ ${#OBJ_DIRS[@]} -eq 0 ]]; then
-    if [[ -d "$INPUT_DIR/diffusion" ]] || [[ -d "$INPUT_DIR/ar" ]]; then
-        OBJ_DIRS=("$INPUT_DIR")
-    fi
+# First check if input_dir itself is an object directory (has diffusion/ or ar/).
+if [[ -d "$INPUT_DIR/diffusion" ]] || [[ -d "$INPUT_DIR/ar" ]]; then
+    log_info "Input directory is an object directory; rendering it directly."
+    OBJ_DIRS=("$INPUT_DIR")
+else
+    log_info "Searching for object directories two levels below input directory."
+    # Otherwise, look for synset/hash structure at depth 2.
+    mapfile -t OBJ_DIRS < <(
+        find "$INPUT_DIR" -mindepth 2 -maxdepth 2 -type d \
+            -not -name implicit | sort
+    )
 fi
 
 if [[ ${#OBJ_DIRS[@]} -eq 0 ]]; then

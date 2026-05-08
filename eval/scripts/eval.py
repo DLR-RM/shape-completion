@@ -1,4 +1,5 @@
 import json
+from collections.abc import Mapping
 from typing import Any, cast
 
 import hydra
@@ -60,6 +61,34 @@ def _to_int(value: Any) -> int:
     if isinstance(value, list):
         return _to_int(value[0])
     return int(value)
+
+
+def _select_batch_item(value: Any, index: int, batch_size: int) -> Any:
+    if torch.is_tensor(value):
+        return value[index : index + 1]
+    if isinstance(value, Mapping):
+        if batch_size == 1:
+            return value
+        return {key: _select_mapping_batch_item(item, index, batch_size) for key, item in value.items()}
+    if isinstance(value, np.ndarray):
+        if value.ndim > 0 and len(value) == batch_size:
+            return value[index : index + 1]
+        return value
+    if isinstance(value, list) and len(value) == batch_size:
+        return [value[index]]
+    if isinstance(value, tuple) and len(value) == batch_size:
+        return (value[index],)
+    return value
+
+
+def _select_mapping_batch_item(value: Any, index: int, batch_size: int) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _select_mapping_batch_item(item, index, batch_size) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_select_mapping_batch_item(item, index, batch_size) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_select_mapping_batch_item(item, index, batch_size) for item in value)
+    return _select_batch_item(value, index, batch_size)
 
 
 @torch.no_grad()
@@ -380,7 +409,7 @@ def main(cfg: DictConfig):
                     batch_iou.append(occ_result["iou"])
 
         for i in range(len(batch["index"])):
-            item = {k: (v[i : i + 1] if torch.is_tensor(v) else [v[i]]) for k, v in batch.items()}
+            item = {k: _select_batch_item(v, i, len(batch["index"])) for k, v in batch.items()}
             index = _to_int(item["index"])
 
             if item.get("inputs.skip", False):

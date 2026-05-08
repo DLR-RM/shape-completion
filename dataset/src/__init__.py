@@ -1,5 +1,6 @@
 from . import transforms as _transforms
 from .bop import BOP as BOP
+from .bop_scene import BOPSceneEval as BOPSceneEval
 from .coco import CocoInstanceSegmentation as CocoInstanceSegmentation
 from .coco import coco_collate as coco_collate
 from .completion3d import Completion3D as Completion3D

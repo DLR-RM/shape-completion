@@ -266,6 +266,46 @@ def test_eval_main_smoke(monkeypatch: Any, tmp_path: Path) -> None:
     assert (tmp_path / "dummy_test_eval_full_smokeid.txt").is_file()
 
 
+def test_eval_batch_item_selection_keeps_mapping_metadata() -> None:
+    batch = {
+        "index": torch.tensor([0]),
+        "inputs.path": ["scene/depth/000001.png"],
+        "alignment.gt_index_to_2d_index": {3: torch.tensor([0])},
+        "alignment.obj_id_to_2d_indices": {21: [torch.tensor([0]), torch.tensor([2])]},
+    }
+
+    item = {key: eval_script._select_batch_item(value, 0, len(batch["index"])) for key, value in batch.items()}
+
+    assert item["index"].shape == (1,)
+    assert item["inputs.path"] == ["scene/depth/000001.png"]
+    assert item["alignment.gt_index_to_2d_index"][3].item() == 0
+    assert [value.item() for value in item["alignment.obj_id_to_2d_indices"][21]] == [0, 2]
+
+
+def test_eval_batch_item_selection_slices_nested_mapping_values() -> None:
+    batch = {
+        "index": torch.tensor([0, 1]),
+        "inputs.path": ["a.png", "b.png"],
+        "alignment.gt_index_to_2d_index": {3: torch.tensor([0, 4])},
+        "alignment.obj_id_to_2d_indices": {21: [torch.tensor([0, 4]), torch.tensor([2, 6])]},
+    }
+
+    item = {key: eval_script._select_batch_item(value, 1, len(batch["index"])) for key, value in batch.items()}
+
+    assert item["index"].tolist() == [1]
+    assert item["inputs.path"] == ["b.png"]
+    assert item["alignment.gt_index_to_2d_index"][3].tolist() == [4]
+    assert [value.tolist() for value in item["alignment.obj_id_to_2d_indices"][21]] == [[4], [6]]
+
+
+def test_eval_batch_item_selection_preserves_tuple_container_type() -> None:
+    value = ("first", "second")
+
+    item = eval_script._select_batch_item(value, 1, batch_size=2)
+
+    assert item == ("second",)
+
+
 def test_generate_main_smoke(monkeypatch: Any, tmp_path: Path) -> None:
     input_path = tmp_path / "input.ply"
     input_path.write_text("ply")

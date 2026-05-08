@@ -16,6 +16,7 @@ from torchvision.transforms import v2 as T
 from utils import Voxelizer
 
 from .src.bop import BOP
+from .src.bop_scene import BOPSceneEval
 from .src.coco import CocoInstanceSegmentation
 from .src.completion3d import Completion3D
 from .src.fields import (
@@ -719,6 +720,213 @@ def get_bop(cfg: DictConfig, ds: str):
     )
 
 
+def get_bop_scene(cfg: DictConfig, ds: str, split: str) -> BOPSceneEval:
+    parts = ds.split("_")
+    if len(parts) < 2:
+        raise ValueError(f"BOP scene dataset id must look like 'bopscene_<name>[_<split>]', got {ds}.")
+    name = parts[1]
+    requested_split = cfg.data.get("bop_scene_split")
+    if requested_split is None:
+        requested_split = "_".join(parts[2:]) if len(parts) > 2 else ("test" if split == "test" else split)
+
+    scene_ids = cfg.data.get("bop_scene_ids")
+    if scene_ids is not None:
+        scene_ids = [int(s) for s in scene_ids]
+
+    mesh_dir = None
+    if "bop_scene_models" in cfg.dirs:
+        mesh_dir = cfg.dirs["bop_scene_models"]
+    elif hasattr(cfg.dirs, "get"):
+        mesh_dir = cfg.dirs.get("bop_scene_models", None)
+    mesh_dir_path = Path(mesh_dir) if mesh_dir is not None else None
+
+    transforms_3d: list[Transform] = []
+    if cfg.norm.center or cfg.norm.scale:
+        transforms_3d.append(
+            Normalize(
+                center=cfg.norm.center,
+                scale=cfg.norm.scale,
+                scale_factor=cfg.norm.scale_factor,
+                scale_quantiles=(0.02, 0.98),
+                center_method="median",
+                reference=cfg.norm.reference,
+            )
+        )
+    if cfg.inputs.crop:
+        transforms_3d.append(
+            CropPointcloud(
+                apply_to="inputs",
+                mode=cast(Literal["cube", "sphere", "frustum"], cfg.inputs.crop)
+                if isinstance(cfg.inputs.crop, str)
+                else "cube",
+                padding=cfg.norm.padding,
+                scale_factor=cfg.norm.scale_factor,
+            )
+        )
+    if cfg.points.crop:
+        transforms_3d.append(
+            CropPoints(
+                mode=cast(Literal["cube", "sphere", "frustum"], cfg.points.crop)
+                if isinstance(cfg.points.crop, str)
+                else "cube",
+                padding=cfg.norm.padding,
+                scale_factor=cfg.norm.scale_factor,
+            )
+        )
+    if cfg.inputs.num_points:
+        transforms_3d.append(SubsamplePointcloud(apply_to="inputs", num_samples=cfg.inputs.num_points))
+    if cfg.points.subsample and cfg[split].num_query_points:
+        transforms_3d.append(
+            SubsamplePoints(
+                cfg[split].num_query_points,
+                in_out_ratio=cfg.points.in_out_ratio if split == "train" else None,
+                padding=cfg.norm.padding,
+                scale_factor=cfg.norm.scale_factor,
+                voxel_res=16 if (split == "train" and cfg.points.subsample == "uniform") else None,
+                per_voxel_cap=2,
+            )
+        )
+    elif cfg.points.voxelize:
+        transforms_3d.append(
+            VoxelizePoints(
+                resolution=cfg.points.voxelize,
+                padding=cfg.norm.padding,
+                scale_factor=cfg.norm.scale_factor,
+                bounds=cfg.norm.bounds,
+            )
+        )
+    if cfg.get("refine_pose"):
+        show_refine_pose = bool(cfg.vis.show and cfg.log.verbose > 1)
+        transforms_3d.extend(
+            [
+                RefinePose(
+                    point_to_plane=True,
+                    remove_outlier=True,
+                    show=show_refine_pose,
+                    use_egl=not cfg.vis.show,
+                ),
+                RefinePosePerInstance(
+                    point_to_plane=True,
+                    remove_outlier=True,
+                    show=show_refine_pose,
+                    use_egl=not cfg.vis.show,
+                ),
+            ]
+        )
+
+    keys_to_keep = list(cfg.load.keys_to_keep)
+    keys_to_keep.extend(
+        [
+            "scene.id",
+            "frame.id",
+            "scene.object_id_list",
+            "inputs.obj_id_order_2d",
+            "inputs.gt_indices_2d",
+            "inputs.background_plane",
+            "inputs.background_plane_status",
+            "inputs.background_plane_num_background",
+            "inputs.background_plane_num_background_kept",
+            "inputs.background_plane_inlier_ratio",
+            "inputs.background_plane_mean_distance",
+            "inputs.outlier_removal_num_removed",
+            "inputs.outlier_removal_num_removed_background",
+            "inputs.outlier_removal_num_removed_objects",
+            "inputs.dbscan_num_removed",
+            "inputs.dbscan_num_removed_background",
+            "inputs.dbscan_num_removed_objects",
+            "inputs.dbscan_num_clustered_labels",
+            "mesh.obj_poses_cam",
+            "mesh.obj_id_order_3d",
+            "mesh.gt_indices_3d",
+            "mesh.vertices_cam",
+            "mesh.vertices_world",
+            "mesh.vertices_table",
+            "alignment.status",
+            "alignment.only_2d_ids",
+            "alignment.only_3d_ids",
+            "alignment.only_2d_gt_indices",
+            "alignment.only_3d_gt_indices",
+            "alignment.obj_id_order_2d",
+            "alignment.obj_id_order_3d",
+            "alignment.gt_index_order_2d",
+            "alignment.gt_index_order_3d",
+            "alignment.obj_id_to_2d_index",
+            "alignment.obj_id_to_3d_index",
+            "alignment.gt_index_to_2d_index",
+            "alignment.gt_index_to_3d_index",
+            "alignment.obj_id_to_2d_indices",
+            "alignment.obj_id_to_3d_indices",
+            "alignment.seq_to_obj_id",
+        ]
+    )
+    if cfg.data.split:
+        transforms_3d.append(SplitData(split_text=False))
+    elif not cfg.vis.mesh:
+        logger.debug("BOP scene mesh keys filtered because data.split=False and vis.mesh=False.")
+        keys_to_keep = [key for key in keys_to_keep if not key.startswith("mesh")]
+    transforms_3d.extend([KeysToKeep(keys_to_keep), CheckDtype(dither=split == "train" and cfg.data.dither)])
+
+    generate_points = cfg.data.get("bop_generate_points", True)
+    load_mesh = cfg.data.get("bop_load_mesh", True)
+    crop_to_mesh = cfg.data.get("bop_crop_to_mesh", bool(cfg.inputs.project and load_mesh))
+    load_pcd = cfg.data.get("bop_load_pcd", cfg.vis.show or cfg.vis.save)
+    load_points = cfg.data.get("bop_load_points", generate_points)
+    sample_scene_points = cfg.data.get("bop_sample_scene_points", generate_points)
+    pcd_num_points = cfg.data.get("bop_pcd_num_points", 100_000)
+    num_points = cfg.data.get("bop_num_points", 100_000)
+    num_scene_points = cfg.data.get("bop_num_scene_points", 100_000)
+
+    return BOPSceneEval(
+        root=Path(cfg.dirs["bop"]),
+        name=name,
+        split=requested_split,
+        mesh_dir=mesh_dir_path,
+        scene_ids=scene_ids,
+        project=cfg.inputs.project,
+        load_mesh=load_mesh,
+        crop_to_mesh=crop_to_mesh,
+        crop_padding=cfg.data.get("bop_crop_padding", 0.1),
+        mesh_simplify_fraction=cfg.data.get("bop_mesh_simplify_fraction", None),
+        mesh_scale=cfg.data.get("bop_mesh_scale", 0.001),
+        load_pcd=load_pcd,
+        pcd_num_points=pcd_num_points,
+        generate_points=generate_points,
+        points_sampling=cfg.data.get("bop_points_sampling", "uniform"),
+        collate_points=cfg.get("collate_3d"),
+        load_points=load_points,
+        sample_scene_points=sample_scene_points,
+        scene_points_volume=cfg.data.get("bop_scene_points_volume", "cube"),
+        num_points=num_points,
+        points_padding=cfg.data.get("bop_points_padding", 0.1),
+        num_scene_points=num_scene_points,
+        padding=cfg.data.get("bop_padding", 0.1),
+        scale_factor=cfg.data.get("bop_scale_factor", 1.0),
+        load_label=cfg.data.get("bop_load_label", True),
+        stack_2d=cfg.get("stack_2d", False),
+        depth_dir=cfg.data.get("bop_depth_dir", "depth"),
+        mask_dir=cfg.data.get("bop_mask_dir", "mask_visib"),
+        filter_background=cfg.data.get("bop_filter_background", None),
+        background_plane_threshold=cfg.data.get("bop_background_plane_threshold", 0.01),
+        background_plane_iterations=cfg.data.get("bop_background_plane_iterations", 256),
+        background_plane_max_fit_points=cfg.data.get("bop_background_plane_max_fit_points", 5000),
+        background_plane_min_inliers=cfg.data.get("bop_background_plane_min_inliers", 100),
+        background_plane_show=bool(cfg.vis.show and cfg.log.verbose > 1),
+        statistical_outlier_removal=cfg.data.get("bop_statistical_outlier_removal", False),
+        statistical_outlier_neighbors=cfg.data.get("bop_statistical_outlier_neighbors", 50),
+        statistical_outlier_std_ratio=cfg.data.get("bop_statistical_outlier_std_ratio", 2.5),
+        statistical_outlier_min_points=cfg.data.get("bop_statistical_outlier_min_points", None),
+        statistical_outlier_show=bool(cfg.vis.show and cfg.log.verbose > 1),
+        dbscan_filter=cfg.data.get("bop_dbscan_filter", False),
+        dbscan_eps=cfg.data.get("bop_dbscan_eps", 0.05),
+        dbscan_min_points=cfg.data.get("bop_dbscan_min_points", 10),
+        dbscan_keep=cfg.data.get("bop_dbscan_keep", "non_noise"),
+        dbscan_include_background=cfg.data.get("bop_dbscan_include_background", False),
+        dbscan_show=bool(cfg.vis.show and cfg.log.verbose > 1),
+        one_view_per_scene=cfg.get("single_view", False),
+        transforms=transforms_3d,
+    )
+
+
 def get_tabletop_transforms(
     cfg: DictConfig,
     split: str,
@@ -1085,19 +1293,30 @@ def get_graspnet(cfg: DictConfig, ds: str, split: str) -> GraspNetEval:
             )
         )
     if cfg.get("refine_pose"):
+        show_refine_pose = bool(cfg.vis.show and cfg.log.verbose > 1)
         transforms_3d.extend(
             [
-                RefinePose(point_to_plane=True, remove_outlier=True),
-                RefinePosePerInstance(point_to_plane=True, remove_outlier=True),
+                RefinePose(
+                    point_to_plane=True,
+                    remove_outlier=True,
+                    show=show_refine_pose,
+                    use_egl=not cfg.vis.show,
+                ),
+                RefinePosePerInstance(
+                    point_to_plane=True,
+                    remove_outlier=True,
+                    show=show_refine_pose,
+                    use_egl=not cfg.vis.show,
+                ),
             ]
         )
 
-    keys_to_kep = cfg.load.keys_to_keep
+    keys_to_keep = cfg.load.keys_to_keep
     if cfg.data.split:
         transforms_3d.append(SplitData(split_text=False))
     else:
-        keys_to_kep = [key for key in keys_to_kep if not key.startswith("mesh")]
-    transforms_3d.extend([KeysToKeep(keys_to_kep), CheckDtype(dither=split == "train" and cfg.data.dither)])
+        keys_to_keep = [key for key in keys_to_keep if not key.startswith("mesh")]
+    transforms_3d.extend([KeysToKeep(keys_to_keep), CheckDtype(dither=split == "train" and cfg.data.dither)])
 
     return GraspNetEval(
         root=Path(cfg.dirs["graspnet"]),
@@ -1313,6 +1532,8 @@ def get_dataset(
                 data = CocoInstanceSegmentation(data_dir=Path(cfg.dirs[ds]), split="train", transforms=transforms)
             elif "tabletop" in ds:
                 data = get_tabletop(cfg, split="train", ds=ds)
+            elif ds.startswith("bopscene"):
+                data = get_bop_scene(cfg, ds, split="train")
             elif ds.startswith("graspnet"):
                 data = get_graspnet(cfg, ds, split="train")
             else:
@@ -1382,6 +1603,8 @@ def get_dataset(
                 data = CocoInstanceSegmentation(data_dir=Path(cfg.dirs[ds]), split="val", transforms=transforms)
             elif "tabletop" in ds:
                 data = get_tabletop(cfg, split="val", ds=ds)
+            elif ds.startswith("bopscene"):
+                data = get_bop_scene(cfg, ds, split="val")
             elif ds.startswith("graspnet"):
                 data = get_graspnet(cfg, ds, split="val")
             else:
@@ -1433,6 +1656,8 @@ def get_dataset(
                 )
             elif ds == "ycb":
                 data = get_ycb(cfg, split="test", load_pointcloud=bool(load_pointcloud_mode), load_voxels=load_voxels)
+            elif ds.startswith("bopscene"):
+                data = get_bop_scene(cfg, ds, split="test")
             elif "bop" in ds:
                 data = get_bop(cfg, ds)
             elif ds == "modelnet40":
