@@ -173,6 +173,7 @@ class BOPSceneEval(GraspNetEval):
         self.root = Path(root)
         self.dataset_root = self.root / name
         self.split = split
+        self.camera = split.split("_", 1)[1] if "_" in split else None
         self.load_mesh = load_mesh
         self.mesh_dir = Path(mesh_dir) if mesh_dir is not None else self.dataset_root / "models_eval"
         self.scene_ids = set(scene_ids) if scene_ids is not None else None
