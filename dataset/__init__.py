@@ -111,6 +111,30 @@ from .src.ycb import YCB
 logger = cast(Any, logger)
 
 
+def _vis_mesh_requested(cfg: DictConfig) -> bool:
+    return bool(cfg.vis.mesh and (cfg.vis.show or cfg.vis.save))
+
+
+def _keys_to_keep_for_load(cfg: DictConfig) -> list[str] | None:
+    keys = cfg.load.keys_to_keep
+    if not keys:
+        return None
+    keys = list(keys)
+    if cfg.vis.save and cfg.vis.mesh:
+        for key in (
+            "mesh.vertices",
+            "mesh.triangles",
+            "mesh.normals",
+            "mesh.colors",
+            "mesh.textures",
+            "mesh.uvs",
+            "mesh.ids",
+        ):
+            if key not in keys:
+                keys.append(key)
+    return keys
+
+
 def get_transformations(cfg: DictConfig, split: str) -> list[Transform]:
     train_aug = split == "train" and not cfg.train.no_aug
     val_aug = split == "val" and not cfg.val.no_aug
@@ -123,6 +147,7 @@ def get_transformations(cfg: DictConfig, split: str) -> list[Transform]:
         "partial",
         "depth_like",
     ] or (input_has_depth and cfg.inputs.project)
+    vis_mesh = _vis_mesh_requested(cfg)
 
     transformations = list()
 
@@ -167,7 +192,7 @@ def get_transformations(cfg: DictConfig, split: str) -> list[Transform]:
                     height=cfg.inputs.height or 480,
                     offscreen=not cfg.vis.show,
                     method="pyrender",
-                    remove_mesh=cfg.inputs.cache and not (cfg.points.from_mesh or (cfg.vis.show and cfg.vis.mesh)),
+                    remove_mesh=cfg.inputs.cache and not (cfg.points.from_mesh or vis_mesh),
                     render_color=color,
                     render_depth=depth,
                     render_normals=normals,
@@ -480,8 +505,9 @@ def get_transformations(cfg: DictConfig, split: str) -> list[Transform]:
     if min_num_points or max_num_points:
         transformations.append(MinMaxNumPoints(min_num_points=min_num_points, max_num_points=max_num_points))
 
-    if cfg.load.keys_to_keep and not cfg.vis.show:
-        keys_to_keep = KeysToKeep(keys=cfg.load.keys_to_keep)
+    keys_to_keep_cfg = _keys_to_keep_for_load(cfg)
+    if keys_to_keep_cfg and not cfg.vis.show:
+        keys_to_keep = KeysToKeep(keys=keys_to_keep_cfg)
         transformations.append(keys_to_keep)
     exclude = list()
     if cfg.inputs.voxelize or cfg.inputs.bps.num_points:
@@ -861,8 +887,8 @@ def get_bop_scene(cfg: DictConfig, ds: str, split: str) -> BOPSceneEval:
     )
     if cfg.data.split:
         transforms_3d.append(SplitData(split_text=False))
-    elif not cfg.vis.mesh:
-        logger.debug("BOP scene mesh keys filtered because data.split=False and vis.mesh=False.")
+    elif not _vis_mesh_requested(cfg):
+        logger.debug("BOP scene mesh keys filtered because data.split=False and mesh visualization/export is disabled.")
         keys_to_keep = [key for key in keys_to_keep if not key.startswith("mesh")]
     transforms_3d.extend([KeysToKeep(keys_to_keep), CheckDtype(dither=split == "train" and cfg.data.dither)])
 
@@ -1423,7 +1449,7 @@ def get_dataset(
 
     vis_points = cfg.vis.show and (cfg.vis.occupancy or cfg.vis.points)
     vis_pointcloud = cfg.vis.show and cfg.vis.pointcloud
-    vis_mesh = cfg.vis.show and cfg.vis.mesh
+    vis_mesh = _vis_mesh_requested(cfg)
     vis_voxels = cfg.vis.show and cfg.vis.voxels
 
     cls_only = (cfg.cls.num_classes is not None or cfg.seg.num_classes is not None) and not cfg.cls.occupancy
