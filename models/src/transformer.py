@@ -175,6 +175,7 @@ class Attention(nn.Module):
         enable_flash = self.mode == "flash" and is_16bit
         enable_math = self.mode == "math" or not is_16bit
         enable_mem_efficient = self.mode == "efficient" or (self.mode == "flash" and not is_16bit) or q.size(-1) > 256
+        dropout_p = self.dropout if self.training else 0.0
 
         try:
             if SDP_BACKEND_EXISTS:
@@ -187,14 +188,14 @@ class Attention(nn.Module):
                     backends.append(SDPBackend.EFFICIENT_ATTENTION)
                 with torch.nn.attention.sdpa_kernel(backends):
                     return F.scaled_dot_product_attention(
-                        q, k, v, dropout_p=self.dropout, is_causal=self.causal
+                        q, k, v, dropout_p=dropout_p, is_causal=self.causal
                     )  # [B, H, T, C]
             else:
                 with torch.backends.cuda.sdp_kernel(
                     enable_flash=enable_flash, enable_math=enable_math, enable_mem_efficient=enable_mem_efficient
                 ):
                     return F.scaled_dot_product_attention(
-                        q, k, v, dropout_p=self.dropout, is_causal=self.causal
+                        q, k, v, dropout_p=dropout_p, is_causal=self.causal
                     )  # [B, H, T, C]
         except torch.cuda.OutOfMemoryError:
             logger.exception(f"CUDA OOM with input shapes: q={q.shape}, k={k.shape}, v={v.shape}")
@@ -211,13 +212,14 @@ class Attention(nn.Module):
             op = xops.MemoryEfficientAttentionOp
             in_dtype = torch.float32
         attn_bias = xops.fmha.attn_bias.LowerTriangularMask() if self.causal else None
+        dropout_p = self.dropout if self.training else 0.0
         return (
             xops.memory_efficient_attention(
                 q.transpose(1, 2).to(in_dtype),
                 k.transpose(1, 2).to(in_dtype),
                 v.transpose(1, 2).to(in_dtype),
                 attn_bias=attn_bias,
-                p=self.dropout,
+                p=dropout_p,
                 op=op,
             )
             .transpose(1, 2)

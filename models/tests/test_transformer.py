@@ -27,6 +27,25 @@ def test_permutation():
     assert torch.allclose(attn(q, k[:, index], v[:, index]), attn(q, k, v), atol=1e-6)
 
 
+@pytest.mark.parametrize("backend", ["torch", "einops", "xformers"])
+def test_attention_disables_dropout_in_eval_mode(backend):
+    if backend == "xformers" and (not XFORMERS_EXISTS or not torch.cuda.is_available()):
+        pytest.skip("xformers attention needs xformers and CUDA")
+
+    device = "cuda" if backend == "xformers" else "cpu"
+    attention = Attention(dropout=0.5, mode="math", backend=backend).to(device)
+    attention.eval()
+    q = torch.randn(2, 3, 11, 8, device=device)
+    k = torch.randn(2, 3, 11, 8, device=device)
+    v = torch.randn(2, 3, 11, 8, device=device)
+
+    with torch.inference_mode():
+        first = attention(q, k, v)
+        second = attention(q, k, v)
+
+    torch.testing.assert_close(first, second, rtol=0.0, atol=0.0)
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_attention():
     attn1 = MultiHeadAttention(32, 4).eval().cuda()
