@@ -74,6 +74,8 @@ from .utils import (
 
 logger = setup_logger(__name__)
 
+LEGACY_DINO_V2_REPO = "facebookresearch/dinov2:81b2b6419385a321287de91e00282ef7cbd26f94"
+
 
 def _load_dino_backbone(repo_or_dir: str, backbone: str, **kwargs: Any) -> Any:
     if "verbose" not in kwargs:
@@ -86,6 +88,100 @@ def _require_tensor(data: dict[str, Any], key: str) -> Tensor:
     if not isinstance(value, Tensor):
         raise TypeError(f"Expected tensor for `{key}`")
     return value
+
+
+def _checkpoint_model_state_dict(state_dict: dict[str, Any]) -> dict[str, Any]:
+    if "state_dict" in state_dict:
+        state_dict = state_dict["state_dict"]
+    if "model" in state_dict:
+        state_dict = state_dict["model"]
+    return {k.replace("model.", "").replace("_orig_mod.", ""): v for k, v in state_dict.items()}
+
+
+def _is_legacy_dino3d_state_dict(state_dict: dict[str, Any]) -> bool:
+    state_dict = _checkpoint_model_state_dict(state_dict)
+    nerf_weight = state_dict.get("nerf_enc.mlp.weight")
+    return (
+        isinstance(nerf_weight, Tensor)
+        and tuple(nerf_weight.shape) == (384, 63)
+        and "inputs_enc.ln_1.weight" in state_dict
+        and "points_enc.cross_attn.to_q.weight" in state_dict
+    )
+
+
+def dino3d_legacy_config_overrides(state_dict: dict[str, Any] | None) -> dict[str, Any]:
+    if state_dict is None or not _is_legacy_dino3d_state_dict(state_dict):
+        return {}
+    return {
+        "repo_or_dir": LEGACY_DINO_V2_REPO,
+        "num_queries": 512,
+        "cls_token": True,
+        "cat_feat": False,
+        "nerf_freqs": 10,
+        "init_weights": False,
+        "normalize_inputs": True,
+        "scale_inputs": True,
+        "legacy_forward_features": True,
+    }
+
+
+def _remap_legacy_dino3d_state_dict(state_dict: dict[str, Any]) -> dict[str, Any]:
+    remapped = dict(state_dict)
+
+    for key, value in list(state_dict.items()):
+        if key.startswith("nerf_enc."):
+            remapped[f"decoder.0.{key.removeprefix('nerf_enc.')}"] = value
+        elif key.startswith("occ_head."):
+            remapped[f"decoder.2.{key.removeprefix('occ_head.')}"] = value
+        elif key.startswith("points_enc."):
+            suffix = key.removeprefix("points_enc.")
+            remapped.pop(key, None)
+            remapped[f"cross_attn.{suffix}"] = value
+            remapped[f"decoder.1.{suffix}"] = value
+        elif key.startswith("inputs_enc."):
+            suffix = key.removeprefix("inputs_enc.")
+            remapped.pop(key, None)
+            if suffix == "self_attn.to_qkv.weight":
+                remapped["input_enc.self_attn.to_q.weight"] = value[:384]
+                remapped["input_enc.self_attn.to_kv.weight"] = value[384:]
+            elif suffix == "self_attn.to_qkv.bias":
+                remapped["input_enc.self_attn.to_q.bias"] = value[:384]
+                remapped["input_enc.self_attn.to_kv.bias"] = value[384:]
+            else:
+                remapped[f"input_enc.{suffix}"] = value
+
+    return remapped
+
+
+def _is_legacy_dino_inst_seg_3d_state_dict(state_dict: dict[str, Any]) -> bool:
+    state_dict = _checkpoint_model_state_dict(state_dict)
+    nerf_weight = state_dict.get("nerf_enc.mlp.weight")
+    query_pos = state_dict.get("query_pos.weight")
+    return (
+        isinstance(nerf_weight, Tensor)
+        and tuple(nerf_weight.shape) == (384, 39)
+        and isinstance(query_pos, Tensor)
+        and tuple(query_pos.shape) == (100, 384)
+        and "queries.0.weight" in state_dict
+        and "inputs_head.0.weight" in state_dict
+        and "cls_quality_head.0.weight" in state_dict
+    )
+
+
+def dino_inst_seg_3d_legacy_config_overrides(state_dict: dict[str, Any] | None) -> dict[str, Any]:
+    if state_dict is None or not _is_legacy_dino_inst_seg_3d_state_dict(state_dict):
+        return {}
+    return {
+        "repo_or_dir": LEGACY_DINO_V2_REPO,
+        "num_objs": 100,
+        "num_queries": 1024,
+        "mlp_heads": True,
+        "multitask": "head",
+        "pred_cls": "quality+objectness",
+        "queries_from_feat": "detach",
+        "init_weights": False,
+        "nerf_freqs": 6,
+    }
 
 
 class DinoCls(MultiEvalMixin, MultiLossMixin, PredictMixin, Model):
@@ -153,6 +249,10 @@ class Dino3D(MultiEvalMixin, MultiLossMixin, PredictMixin, Model):
         num_classes: int | None = None,
         nerf_enc: Literal["tcnn", "torch"] = "tcnn" if TCNN_EXISTS else "torch",
         nerf_freqs: int = 6,
+        padding: float = 0.1,
+        normalize_inputs: bool = False,
+        scale_inputs: bool = False,
+        legacy_forward_features: bool = False,
         sample: int | None = None,
         learn_loss_weights: bool = False,
     ):
@@ -179,9 +279,13 @@ class Dino3D(MultiEvalMixin, MultiLossMixin, PredictMixin, Model):
             "dinov2_vitl14": [4, 11, 17, 23],
             "dinov2_vitg14": [9, 19, 29, 39],
         }[backbone.strip("_reg")]
-        self.encoder.forward = partial(
-            self.encoder.get_intermediate_layers, n=out_index, reshape=False, return_class_token=True, norm=True
-        )
+        self.legacy_forward_features = legacy_forward_features
+        if legacy_forward_features:
+            self.encoder.forward = self.encoder.forward_features
+        else:
+            self.encoder.forward = partial(
+                self.encoder.get_intermediate_layers, n=out_index, reshape=False, return_class_token=True, norm=True
+            )
 
         self.n_embd = self.encoder.embed_dim
         self.n_head = self.encoder.num_heads
@@ -208,8 +312,9 @@ class Dino3D(MultiEvalMixin, MultiLossMixin, PredictMixin, Model):
             implementation=nerf_enc,
             num_frequencies=nerf_freqs,
             max_freq_exp=nerf_freqs - 1,
-            normalize_inputs=False,
-            scale_inputs=False,
+            normalize_inputs=normalize_inputs,
+            scale_inputs=scale_inputs,
+            padding=padding,
         )
 
         self.decoder.append(self.nerf_enc)
@@ -229,6 +334,18 @@ class Dino3D(MultiEvalMixin, MultiLossMixin, PredictMixin, Model):
             self.cls_head = nn.Linear(self.n_embd, num_classes)
             self.decoder.append(self.cls_head)
 
+    def remap_state_dict(self, state_dict: dict[str, Any]) -> dict[str, Any]:
+        if _is_legacy_dino3d_state_dict(state_dict):
+            logger.info("Remapping legacy Dino3D checkpoint keys")
+            return _remap_legacy_dino3d_state_dict(state_dict)
+        return super().remap_state_dict(state_dict)
+
+    def load_state_dict(self, state_dict: dict[str, Any], *args: Any, **kwargs: Any):
+        if _is_legacy_dino3d_state_dict(state_dict):
+            kwargs.setdefault("fuzzy_match", False)
+            kwargs.setdefault("shape_suffix_match", False)
+        return super().load_state_dict(state_dict, *args, **kwargs)
+
     @property
     def bce_focal_weight(self) -> float | Tensor:
         if isinstance(self._bce_focal_weight, nn.Parameter):
@@ -246,13 +363,19 @@ class Dino3D(MultiEvalMixin, MultiLossMixin, PredictMixin, Model):
             raise RuntimeError("Cross-attention is required but not initialized.")
         if feature[0] is None:
             return self.cross_attn(x, feature[1])
-        return self.cross_attn(x, torch.cat((feature[0].unsqueeze(1), feature[1]), dim=1))
+        cls_feat = feature[0].unsqueeze(1) if feature[0].ndim == 2 else feature[0]
+        return self.cross_attn(x, torch.cat((cls_feat, feature[1]), dim=1))
 
     def encode(self, inputs: Tensor, **kwargs) -> Tensor:
         inputs_fps = furthest_point_sample(inputs, num_samples=self.num_queries)
         x = self.input_enc(self.nerf_enc(inputs_fps), self.nerf_enc(inputs))
         x = torch.cat((self.encoder.cls_token.expand(len(x), -1, -1), x), dim=1)
         feat = self.encoder(x)
+        if self.legacy_forward_features:
+            patch_feat = feat["x_norm_patchtokens"]
+            if self.cls_token:
+                return torch.cat((feat["x_norm_clstoken"].unsqueeze(1), patch_feat), dim=1)
+            return patch_feat
         patch_feat = feat[-1][0]
         if self.cat_feat:
             patch_feat = torch.cat([f[0] for f in feat], dim=1)
@@ -2204,6 +2327,12 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
             if multitask:
                 self._points_weight = nn.Parameter(torch.tensor(-math.log(2.0 * points_weight)))
                 self._inputs_weight = nn.Parameter(torch.tensor(-math.log(2.0 * inputs_weight)))
+
+    def load_state_dict(self, state_dict: dict[str, Any], *args: Any, **kwargs: Any):
+        if _is_legacy_dino_inst_seg_3d_state_dict(state_dict):
+            kwargs.setdefault("fuzzy_match", False)
+            kwargs.setdefault("shape_suffix_match", False)
+        return super().load_state_dict(state_dict, *args, **kwargs)
 
     @property
     def mask_weight(self) -> float | Tensor:

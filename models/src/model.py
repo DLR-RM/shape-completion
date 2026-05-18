@@ -175,6 +175,9 @@ class Model(nn.Module, ABC):
 
         return incoming
 
+    def remap_state_dict(self, state_dict: dict[str, Any]) -> dict[str, Any]:
+        return state_dict
+
     def load_state_dict(
         self,
         state_dict: dict[str, Any],
@@ -199,6 +202,7 @@ class Model(nn.Module, ABC):
 
         # Pull out any stored stats before fuzzy mapping.
         self.stats = state_dict.pop("stats", None)
+        state_dict = self.remap_state_dict(state_dict)
 
         # 1) Fuzzy remap for near-identical names
         if fuzzy_match:

@@ -1,4 +1,5 @@
 *.cpp
+!src/*.cpp
 *.egg-info/
 bin/
 build/

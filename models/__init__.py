@@ -12,13 +12,38 @@ from vector_quantize_pytorch import ResidualVQ
 from utils import monkey_patch, resolve_checkpoint_path, resolve_path, resolve_weights_path, setup_logger
 
 from .src import *
+from .src.dinov2 import dino3d_legacy_config_overrides, dino_inst_seg_3d_legacy_config_overrides
 
 logger = setup_logger(__name__)
+
+
+def _resolve_model_weights_path(cfg: DictConfig, weights_path: str | Path | None) -> Path | None:
+    if not weights_path:
+        return None
+    candidate = Path(weights_path)
+    return candidate if candidate.is_file() else resolve_weights_path(cfg, weights_path)
+
+
+def _extract_model_state(weights: dict[str, Any]) -> dict[str, Any]:
+    if "state_dict" in weights:
+        weights = weights["state_dict"]
+    if "model" in weights:
+        weights = weights["model"]
+    return cast(dict[str, Any], weights)
+
+
+def _load_model_state_for_probe(path: Path | None) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    weights = torch.load(path, map_location="cpu", weights_only=True)
+    return _extract_model_state(cast(dict[str, Any], weights))
 
 
 def get_model(cfg: DictConfig, arch: str | None = None, weights_path: str | Path | None = None, **kwargs) -> Model:
     arch = str(arch or cfg.model.arch)
     weights_path = weights_path or cfg.model.weights
+    resolved_weights_path = _resolve_model_weights_path(cfg, weights_path)
+    probed_weights = _load_model_state_for_probe(resolved_weights_path)
     load_weights = weights_path or cfg.train.skip or not cfg.train.resume
     strict = True
 
@@ -412,10 +437,12 @@ def get_model(cfg: DictConfig, arch: str | None = None, weights_path: str | Path
             )
         else:
             if cfg.inputs.type in ["depth", "kinect", "kinect_sim"] and cfg.inputs.project:
+                legacy_overrides = dino_inst_seg_3d_legacy_config_overrides(probed_weights)
                 model = DinoInstSeg3D(
                     dim=cfg.inputs.dim,
-                    num_objs=cfg.get("n_objs", 100),
-                    num_queries=cfg.get("n_queries", 1024),
+                    repo_or_dir=cfg.get("repo_or_dir", legacy_overrides.get("repo_or_dir", "facebookresearch/dinov2")),
+                    num_objs=cfg.get("n_objs", legacy_overrides.get("num_objs", 100)),
+                    num_queries=cfg.get("n_queries", legacy_overrides.get("num_queries", 1024)),
                     num_enc_layers=cfg.get("l_enc", 1),
                     num_query_layers=cfg.get("l_query"),
                     backbone=cfg.get("backbone", "dinov2_vits14"),
@@ -427,13 +454,13 @@ def get_model(cfg: DictConfig, arch: str | None = None, weights_path: str | Path
                     cat_feat=cfg.get("cat_feat", True),
                     cat_point_feat=cfg.get("cat_point_feat", False),
                     points_dec=cfg.get("point_dec"),
-                    pred_cls=cfg.get("pred_cls", "quality+objectness"),
+                    pred_cls=cfg.get("pred_cls", legacy_overrides.get("pred_cls", "quality+objectness")),
                     detach_cls=cfg.get("detach_cls", False),
-                    queries_from_feat=cfg.get("queries_from_feat", "detach"),
+                    queries_from_feat=cfg.get("queries_from_feat", legacy_overrides.get("queries_from_feat", "detach")),
                     cos_sim=cfg.get("cos_sim", False),
                     logit_scale=cfg.get("logit_scale", False),
                     embd_lvls=cfg.get("embd_lvls", False),
-                    mlp_heads=cfg.get("mlp_heads", False),
+                    mlp_heads=cfg.get("mlp_heads", legacy_overrides.get("mlp_heads", False)),
                     match_cls=cfg.get("match_cls", True),
                     anneal_cls=cfg.get("anneal_cls"),
                     pad_targets=cfg.get("pad_targets", False),
@@ -446,9 +473,9 @@ def get_model(cfg: DictConfig, arch: str | None = None, weights_path: str | Path
                     cls_weight=cfg.get("cls_weight", 0.5),
                     cls_pos_weight=cfg.get("cls_pos_weight"),
                     aux_weight=cfg.get("aux_weight"),
-                    init_weights=cfg.get("init_weights", False),
+                    init_weights=cfg.get("init_weights", legacy_overrides.get("init_weights", False)),
                     learn_loss_weights=cfg.get("learn_weights", False),
-                    multitask=cfg.get("multitask", False),
+                    multitask=cfg.get("multitask", legacy_overrides.get("multitask", False)),
                     inputs_weight=cfg.get("inputs_weight", 1.0),
                     points_weight=cfg.get("points_weight", 1.0),
                     focal_alpha=cfg.get("focal_alpha", 0.25),
@@ -457,7 +484,7 @@ def get_model(cfg: DictConfig, arch: str | None = None, weights_path: str | Path
                     min_mask_size=cfg.get("min_mask_size", 64),
                     apply_filter=cfg.get("apply_filter", True),
                     nerf_enc=cfg.get("nerf_enc", "tcnn" if TCNN_EXISTS else "torch"),
-                    nerf_freqs=cfg.get("nerf_freqs", 6),
+                    nerf_freqs=cfg.get("nerf_freqs", legacy_overrides.get("nerf_freqs", 6)),
                 )
             elif cfg.inputs.type == "rgbd":
                 model = DinoInstSegRGBD(
@@ -529,23 +556,31 @@ def get_model(cfg: DictConfig, arch: str | None = None, weights_path: str | Path
                     bias=cfg.get("bias", False),
                 )
             else:
+                legacy_overrides = dino3d_legacy_config_overrides(probed_weights)
                 model = Dino3D(
-                    num_queries=cfg.get("n_queries", 256),
+                    repo_or_dir=cfg.get("repo_or_dir", legacy_overrides.get("repo_or_dir", "facebookresearch/dinov2")),
+                    num_queries=cfg.get("n_queries", legacy_overrides.get("num_queries", 256)),
                     backbone=backbone,
-                    cls_token=cfg.get("cls_token", False),
-                    cat_feat=cfg.get("cat_feat", True),
+                    cls_token=cfg.get("cls_token", legacy_overrides.get("cls_token", False)),
+                    cat_feat=cfg.get("cat_feat", legacy_overrides.get("cat_feat", True)),
                     num_classes=cfg.cls.num_classes,
                     bias=cfg.model.bias,
                     dropout=cfg.model.dropout,
                     drop_path=cfg.get("drop_path", 0.1),
-                    init_weights=cfg.get("init_weights", True),
+                    init_weights=cfg.get("init_weights", legacy_overrides.get("init_weights", True)),
                     loss_name=cfg.train.loss or "dice+bce",
                     bce_weight=cfg.get("bce_weight", 5.0),
                     dice_focal_weight=cfg.get("dice_focal_weight", 2.0),
                     focal_alpha=cfg.get("focal_alpha", 0.25),
                     focal_gamma=cfg.get("focal_gamma", 2.0),
                     nerf_enc=cfg.get("nerf_enc", "torch" if second_order else "tcnn"),
-                    nerf_freqs=cfg.get("nerf_freqs", 6),
+                    nerf_freqs=cfg.get("nerf_freqs", legacy_overrides.get("nerf_freqs", 6)),
+                    padding=cfg.norm.padding,
+                    normalize_inputs=cfg.get("normalize_inputs", legacy_overrides.get("normalize_inputs", False)),
+                    scale_inputs=cfg.get("scale_inputs", legacy_overrides.get("scale_inputs", False)),
+                    legacy_forward_features=cfg.get(
+                        "legacy_forward_features", legacy_overrides.get("legacy_forward_features", False)
+                    ),
                     sample=cfg.get("sample"),
                     learn_loss_weights=cfg.get("learn_weights", False),
                 )
@@ -625,11 +660,11 @@ def get_model(cfg: DictConfig, arch: str | None = None, weights_path: str | Path
     weights = None
     if load_weights:
         if weights_path:
-            path = resolve_weights_path(cfg, weights_path)
+            path = resolved_weights_path
             if path is None:
                 raise FileNotFoundError(f"Could not resolve weights path '{weights_path}'.")
             logger.info(f"Loading weights from {path}")
-            weights = torch.load(path, map_location="cpu", weights_only=False)
+            weights = probed_weights if probed_weights is not None else torch.load(path, map_location="cpu")
             cfg.model.weights = str(path)
         elif cfg.model.load_best or cfg.train.skip:
             name = f"model_{'ema' if cfg.model.average == 'ema' else 'best'}.pt"

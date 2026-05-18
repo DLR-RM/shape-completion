@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-cd git/shape-completion || true
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
 ./scripts/run.sh evaluate -cn "$@"
 ./scripts/run.sh generate -cn "$@"
 ./scripts/run.sh gen_eval -cn "$@" test.metrics="[chamfer,fpd,clip_fid,kid,prdc]" test.batch_size=512

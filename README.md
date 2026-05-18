@@ -295,7 +295,7 @@ See [visualize/README.md](visualize/README.md) for Generator and Renderer option
 make_watertight path/to/ShapeNetCore.v1
 
 # Render Kinect-style depth
-render_kinect mesh.obj -o depth.png --noise perlin
+render_kinect mesh.obj --out_dir path/to/depth --n_views 1
 
 # Find uncertain regions
 find_uncertain_regions -cn shapenet_uncertain
@@ -304,6 +304,17 @@ find_uncertain_regions -cn shapenet_uncertain
 See [process/README.md](process/README.md) for preprocessing scripts.
 
 ## Reproducing Paper Results
+
+The checked commands live in [docs/reproduction.md](docs/reproduction.md) and can be rendered with:
+
+```bash
+python3 scripts/reproduce_experiment.py --list
+python3 scripts/reproduce_experiment.py --recipe 3dv2026:ar-uncond-eval \
+    --set weights=cvpr_2025/pcd_larm_v1/model_ema.pt \
+    --set vae_weights=cvpr_2025_vae/pcd_vqvae_16k_long/model_best.pt
+```
+
+Without `--execute`, the script prints commands only. This is the recommended public sanity path: it checks the repo-facing command surface without starting long training or evaluation jobs.
 
 ### C1: Shape Completion with Prediction of Uncertain Regions (IROS 2023)
 
@@ -408,7 +419,7 @@ gen_eval -cn mugs_paper model.weights=path/to/model_best.pt
 
 ```bash
 # Simulate Kinect depth
-render_kinect mesh.obj -o depth.png --noise perlin
+render_kinect mesh.obj --out_dir path/to/depth --n_views 1
 
 # Train primary model
 train -cn humanoids_2023
@@ -472,6 +483,20 @@ train -cn cvpr_2025 +vae_weights=cvpr_2025_vae/<run_name>/model_best.pt
 gen_eval -cn cvpr_2025 model.weights=path/to/ldm/model_best.pt \
     +vae_weights=cvpr_2025_vae/<run_name>/model_best.pt
 ```
+
+For the VQ-VAE/AR recipes and the normalization overrides used by the released runs, prefer the checked recipes in [docs/reproduction.md](docs/reproduction.md).
+
+### C4: Instance-aware 3D completion
+
+This codebase also contains the instance-completion functionality used for joint instance segmentation and shape completion on tabletop scenes. The public entry point is `conf/tabletop_inst_seg_pcd_3d.yaml`, with model implementations in `models/src/dinov2.py` and dataset support in `dataset/src/tabletop.py`.
+
+The checked recipes cover:
+
+```bash
+python3 scripts/reproduce_experiment.py --list --suite inst3d2026
+```
+
+This includes joint training, pipeline training, pile fine-tuning/evaluation, and BOP scene evaluation. Pile recipes use `inputs.type=kinect_sim`, `data.train_ds=[tabletop_pile]`, and `test.no_aug=True`. BOP recipes use `data.frame=cam`; use camera-frame checkpoints for those runs.
 
 ## Configuration
 

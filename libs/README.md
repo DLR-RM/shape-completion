@@ -278,6 +278,11 @@ export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$(pwd)/libs/vega"
 - Install OpenCV dev packages: `sudo apt install libopencv-dev`.
 - Verify headers are at `/usr/include/opencv4` (the path in setup.py).
 
+**`assimp/cimport.h: No such file or directory`**
+- Install Assimp headers: `sudo apt install libassimp-dev`.
+- If Assimp is installed in a non-standard prefix, make sure its include directory is visible
+  to the compiler when running `python libs/libmanager.py install kinect`.
+
 ### `uv sync` breaks installed libraries
 
 `uv sync` can delete `.so` files while leaving `.dist-info` metadata intact.

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-cd git/shape-completion || true
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
 ./scripts/run.sh generate -cn "$@" train.no_aug=True test.split=train
 ./scripts/run.sh gen_eval -cn "$@" test.split=train test.metrics="[clip_fid,kid,prdc]"
 ./scripts/run.sh gen_eval -cn "$@" test.split=train test.metrics="[clip_fid,kid,prdc]" data.train_ds="[shapenet_v1]"

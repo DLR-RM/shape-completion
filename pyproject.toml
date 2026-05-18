@@ -44,6 +44,7 @@ models = [
     "jaxtyping>=0.2",
     "vector-quantize-pytorch>=1.18",
     "nvidia-ml-py>=13.0.0",
+    "faster-coco-eval>=1.6",
 ]
 train = ["shape-completion[utils,dataset,models]", "tensorboardx>2.6", "rich>=13"]
 eval = ["shape-completion[utils,dataset,models]", "tabulate>=0.9"]
@@ -54,6 +55,7 @@ process = [
     "pymcubes>=0.1",
     "tyro>=0.9",
     "loguru>=0.7",
+    "pybullet>=3.2",
 ]
 
 # =============================================================================
@@ -89,7 +91,6 @@ git = [
 # BlenderProc rendering
 blenderproc = [
     "blenderproc>=2.7",
-    "pybullet>=3.2",
     "pymeshlab>=2023.12,<2025",
     "opencv-contrib-python>=4.9",
     "coacd>=1.0",
@@ -140,6 +141,7 @@ render_kinect = "process.scripts.render_kinect:main"
 render_kinect_parallel = "process.scripts.render_kinect_parallel:main"
 find_uncertain_regions = "process.scripts.find_uncertain_regions:main"
 add_kinect_sim = "process.scripts.add_kinect_sim:main"
+reproduce_experiment = "experiments.reproduction:main"
 
 [dependency-groups]
 dev = [
@@ -158,6 +160,7 @@ packages = [
     "conf",
     "dataset",
     "eval",
+    "experiments",
     "inference",
     "libs",
     "models",
@@ -181,6 +184,7 @@ testpaths = [
     "models/tests",
     "train/tests",
     "eval/tests",
+    "experiments/tests",
     "inference/tests",
     "visualize/tests",
     "process/tests",
@@ -208,6 +212,7 @@ src = [
     "models",
     "train",
     "eval",
+    "experiments",
     "inference",
     "visualize",
     "process",
@@ -233,6 +238,7 @@ known-first-party = [
     "models",
     "train",
     "eval",
+    "experiments",
     "inference",
     "visualize",
     "process",

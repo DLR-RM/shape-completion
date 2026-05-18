@@ -21,7 +21,7 @@ uv sync --extra blenderproc
 make_watertight path/to/ShapeNetCore.v1
 
 # Render Kinect-style depth for a single mesh
-render_kinect --in_file path/to/mesh.off
+render_kinect path/to/mesh.off
 
 # Render Kinect-style depth for a directory of meshes in parallel
 render_kinect_parallel path/to/meshes --out_dir path/to/output
@@ -168,10 +168,10 @@ Renders depth images with simulated structured-light Kinect v1 artifacts (IR pro
 
 ```bash
 # Single mesh
-render_kinect --in_file mesh.off
+render_kinect mesh.off
 
 # With output directory and camera parameters
-render_kinect --in_file mesh.off \
+render_kinect mesh.off \
     --out_dir path/to/output \
     --n_views 10 \
     --width 640 --height 480 \
@@ -179,11 +179,11 @@ render_kinect --in_file mesh.off \
     --cx 320.8 --cy 245.3
 
 # With random scale and rotation augmentation
-render_kinect --in_file mesh.off \
+render_kinect mesh.off \
     --scale_object --rotate_object
 
 # Verify existing renders
-render_kinect --in_file mesh.off --check --fix
+render_kinect mesh.off --check --fix
 ```
 
 **Output structure:**
@@ -247,11 +247,12 @@ Renders multi-object scenes using BlenderProc with configurable camera sampling,
 No registered entry point; run directly:
 
 ```bash
-python -m process.scripts.render_blenderproc \
-    --shapenet-dir path/to/ShapeNetCore.v1 \
-    --out-dir path/to/output \
-    --n-scenes 100 \
-    --n-views 5
+python3 -m process.scripts.render_blenderproc \
+    --object-path path/to/object_lists/train_objs.txt \
+    --metadata-path path/to/ShapeNetCore.v1/taxonomy.json \
+    --output-dir path/to/output \
+    --depth --kinect --normals --segmentation \
+    --camera.extrinsics 5 --camera.sampler shell
 ```
 
 **Dependencies:** `blenderproc`, `bpy`, `opencv-contrib-python`, `trimesh`, `tyro`, `loguru`. Install via `uv sync --extra blenderproc`.
@@ -572,10 +573,12 @@ For BlenderProc-based rendering (multi-object scenes):
 
 ```bash
 # 1. Render scenes
-python -m process.scripts.render_blenderproc \
-    --shapenet-dir path/to/ShapeNetCore.v1 \
-    --out-dir path/to/scenes \
-    --n-scenes 1000 --n-views 5
+python3 -m process.scripts.render_blenderproc \
+    --object-path path/to/object_lists/train_objs.txt \
+    --metadata-path path/to/ShapeNetCore.v1/taxonomy.json \
+    --output-dir path/to/scenes \
+    --depth --kinect --normals --segmentation \
+    --camera.extrinsics 5 --camera.sampler shell
 
 # 2. Add Kinect simulation to rendered scenes
 add_kinect_sim \
