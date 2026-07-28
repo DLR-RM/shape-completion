@@ -99,6 +99,8 @@ class GC6DSceneEval(BOPSceneEval):
         scenes_dir = self.root / "scenes"
         if not scenes_dir.exists():
             raise FileNotFoundError(f"Could not locate GraspClutter6D scenes directory {scenes_dir}.")
+        if self.scene_ids is None:
+            raise ValueError("GraspClutter6D requires an explicit scene split.")
         scene_names = {f"{scene_id:06d}" for scene_id in self.scene_ids}
         scene_dirs = sorted(
             p for p in scenes_dir.iterdir() if p.is_dir() and p.name in scene_names and (p / self.depth_dir).exists()
@@ -127,7 +129,7 @@ class GC6DSceneEval(BOPSceneEval):
         return samples
 
     def _frame_matches_camera(self, img_num: int) -> bool:
-        return img_num % 4 == self.gc6d_camera_offset % 4
+        return self.gc6d_camera_offset is None or img_num % 4 == self.gc6d_camera_offset % 4
 
 
 __all__ = ["GC6DSceneEval"]

@@ -2,7 +2,6 @@ from . import transforms as _transforms
 from .bop import BOP as BOP
 from .bop_scene import BOPSceneEval as BOPSceneEval
 from .coco import CocoInstanceSegmentation as CocoInstanceSegmentation
-from .gc6d_scene import GC6DSceneEval as GC6DSceneEval
 from .coco import coco_collate as coco_collate
 from .completion3d import Completion3D as Completion3D
 from .fields import DepthField as DepthField
@@ -10,6 +9,7 @@ from .fields import ImageField as ImageField
 from .fields import MeshField as MeshField
 from .fields import PointCloudField as PointCloudField
 from .fields import PointsField as PointsField
+from .gc6d_scene import GC6DSceneEval as GC6DSceneEval
 from .graspnet import GraspNetEval as GraspNetEval
 from .image import ImageFolderDataset as ImageFolderDataset
 from .modelnet import ModelNet as ModelNet
