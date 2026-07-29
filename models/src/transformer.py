@@ -102,7 +102,7 @@ except ImportError as e:
 TCNN_EXISTS = True
 try:
     logger.debug("Importing TinyCudaNN")
-    import tinycudann as tcnn
+    import tinycudann as tcnn  # pyright: ignore[reportMissingImports]
 except (ImportError, OSError) as e:
     logger.debug(f"TinyCudaNN import failed. Some functionality won't be available: {e}")
     TCNN_EXISTS = False

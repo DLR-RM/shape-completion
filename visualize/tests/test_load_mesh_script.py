@@ -97,7 +97,9 @@ def test_main_smoke_with_mesh_dir_and_transform(monkeypatch: Any, tmp_path: Path
                 Vector3dVector=lambda values: np.asarray(values, dtype=np.float32),
                 Vector3iVector=lambda values: np.asarray(values, dtype=np.int32),
             ),
-            visualization=SimpleNamespace(draw_geometries=lambda geometries, **kwargs: draw_calls.append(list(geometries))),
+            visualization=SimpleNamespace(
+                draw_geometries=lambda geometries, **kwargs: draw_calls.append(list(geometries))
+            ),
         ),
     )
 
@@ -127,7 +129,9 @@ def test_main_smoke_without_mesh_dir(monkeypatch: Any, tmp_path: Path) -> None:
                 Vector3dVector=lambda values: np.asarray(values, dtype=np.float32),
                 Vector3iVector=lambda values: np.asarray(values, dtype=np.int32),
             ),
-            visualization=SimpleNamespace(draw_geometries=lambda geometries, **kwargs: draw_calls.append(list(geometries))),
+            visualization=SimpleNamespace(
+                draw_geometries=lambda geometries, **kwargs: draw_calls.append(list(geometries))
+            ),
         ),
     )
 

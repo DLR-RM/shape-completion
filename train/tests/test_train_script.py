@@ -248,7 +248,9 @@ def test_run_smoke_exercises_training_flow(monkeypatch: pytest.MonkeyPatch, tmp_
     monkeypatch.setattr(train_script, "resolve_save_dir", lambda _cfg: save_dir)
     monkeypatch.setattr(train_script, "resolve_checkpoint_path", lambda _cfg: None)
     monkeypatch.setattr(train_script, "resolve_path", lambda value: Path(value))
-    monkeypatch.setattr(train_script.HydraConfig, "get", lambda: SimpleNamespace(job=SimpleNamespace(config_name="smoke")))
+    monkeypatch.setattr(
+        train_script.HydraConfig, "get", lambda: SimpleNamespace(job=SimpleNamespace(config_name="smoke"))
+    )
     monkeypatch.setattr(train_script, "get_dataset", lambda _cfg, splits: {split: _ToyDataset() for split in splits})
     monkeypatch.setattr(train_script, "get_num_workers", lambda value: value)
     monkeypatch.setattr(train_script, "get_collate_fn", lambda *_args, **_kwargs: None)
@@ -260,7 +262,9 @@ def test_run_smoke_exercises_training_flow(monkeypatch: pytest.MonkeyPatch, tmp_
     )
     monkeypatch.setattr(train_script, "LitDataModule", _FakeLitDataModule)
     monkeypatch.setattr(train_script, "LitModel", _FakeLitModel)
-    monkeypatch.setattr(train_script, "ModelCheckpoint", lambda *args, **kwargs: _FakeModelCheckpoint(best_ckpt, *args, **kwargs))
+    monkeypatch.setattr(
+        train_script, "ModelCheckpoint", lambda *args, **kwargs: _FakeModelCheckpoint(best_ckpt, *args, **kwargs)
+    )
     monkeypatch.setattr(train_script, "RichModelSummary", _FakeCallback)
     monkeypatch.setattr(train_script, "LearningRateMonitor", _FakeCallback)
     monkeypatch.setattr(train_script, "RichProgressBar", _FakeCallback)
@@ -274,14 +278,14 @@ def test_run_smoke_exercises_training_flow(monkeypatch: pytest.MonkeyPatch, tmp_
     monkeypatch.setattr(
         train_script,
         "save_best_model",
-        lambda path, out_dir: (
-            saved.__setitem__("best", (Path(path), out_dir)) or {"weight": torch.ones(1)}
-        ),
+        lambda path, out_dir: saved.__setitem__("best", (Path(path), out_dir)) or {"weight": torch.ones(1)},
     )
     monkeypatch.setattr(
         train_script,
         "save_ema_model",
-        lambda trainer, model, out_dir, state_dict=None: saved.__setitem__("ema", (trainer, model, out_dir, state_dict)),
+        lambda trainer, model, out_dir, state_dict=None: saved.__setitem__(
+            "ema", (trainer, model, out_dir, state_dict)
+        ),
     )
 
     import train.src.callbacks as callbacks_module
@@ -329,14 +333,20 @@ def test_run_smoke_wandb_and_compile(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     monkeypatch.setattr(train_script, "suppress_known_optional_dependency_warnings", lambda: None)
     monkeypatch.setattr(train_script, "log_optional_dependency_summary", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(train_script, "resolve_save_dir", lambda _cfg: save_dir)
-    monkeypatch.setattr(train_script.HydraConfig, "get", lambda: SimpleNamespace(job=SimpleNamespace(config_name="smoke")))
+    monkeypatch.setattr(
+        train_script.HydraConfig, "get", lambda: SimpleNamespace(job=SimpleNamespace(config_name="smoke"))
+    )
     monkeypatch.setattr(train_script, "get_dataset", lambda _cfg, splits: {split: _ToyDataset() for split in splits})
     monkeypatch.setattr(train_script, "get_num_workers", lambda value: value)
     monkeypatch.setattr(train_script, "get_collate_fn", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(train_script, "get_model", lambda _cfg: _FakeTrainModel())
     monkeypatch.setattr(train_script, "LitDataModule", _FakeLitDataModule)
     monkeypatch.setattr(train_script, "LitModel", _FakeLitModel)
-    monkeypatch.setattr(train_script, "ModelCheckpoint", lambda *args, **kwargs: _FakeModelCheckpoint(tmp_path / "unused.ckpt", *args, **kwargs))
+    monkeypatch.setattr(
+        train_script,
+        "ModelCheckpoint",
+        lambda *args, **kwargs: _FakeModelCheckpoint(tmp_path / "unused.ckpt", *args, **kwargs),
+    )
     monkeypatch.setattr(train_script, "RichModelSummary", _FakeCallback)
     monkeypatch.setattr(train_script, "RichProgressBar", _FakeCallback)
     monkeypatch.setattr(train_script, "WandbLogger", _FakeWandbLogger)

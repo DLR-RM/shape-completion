@@ -17,7 +17,9 @@ class _FakeModel(nn.Module):
         self._p = nn.Parameter(torch.zeros(1))
         self.name = "ONet"
 
-    def predict(self, inputs: torch.Tensor, query_points: torch.Tensor, points_batch_size: int | None = None) -> torch.Tensor:
+    def predict(
+        self, inputs: torch.Tensor, query_points: torch.Tensor, points_batch_size: int | None = None
+    ) -> torch.Tensor:
         return torch.zeros((1, query_points.size(1)), device=inputs.device, dtype=inputs.dtype)
 
 

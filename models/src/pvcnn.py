@@ -189,7 +189,9 @@ class PVCNN(nn.Module):
         if use_vanilla:
             assert not resnet, "Vanilla PVConv does not support ResNet"
             try:
-                from libs.pvconv import PVConv as _PVConv  # pyright: ignore[reportMissingImports]
+                from libs.pvconv import (
+                    PVConv as _PVConv,  # pyright: ignore[reportMissingImports, reportAttributeAccessIssue]
+                )
 
                 for i in range(len(resolutions)):
                     self.pvconvs.append(

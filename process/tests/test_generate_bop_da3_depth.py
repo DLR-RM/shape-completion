@@ -162,4 +162,6 @@ def test_run_counts_existing_outputs_as_skipped(tmp_path: Path) -> None:
 
     assert summary["num_written"] == 0
     assert summary["num_skipped"] == 1
-    np.testing.assert_array_equal(np.asarray(Image.open(scene / "depth_da3" / "000000.png")), np.asarray([[999]], dtype=np.uint16))
+    np.testing.assert_array_equal(
+        np.asarray(Image.open(scene / "depth_da3" / "000000.png")), np.asarray([[999]], dtype=np.uint16)
+    )

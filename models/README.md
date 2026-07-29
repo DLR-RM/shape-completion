@@ -343,6 +343,7 @@ rescale_skip: true        # Rescaled skip connections
 from torch import nn, Tensor
 from .model import Model
 
+
 class MyModel(Model):
     def __init__(self, dim: int = 3, **kwargs):
         super().__init__()

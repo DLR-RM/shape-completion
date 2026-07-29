@@ -839,13 +839,11 @@ def get_bop_scene(cfg: DictConfig, ds: str, split: str) -> BOPSceneEval:
                     point_to_plane=True,
                     remove_outlier=True,
                     show=show_refine_pose,
-                    use_egl=not cfg.vis.show,
                 ),
                 RefinePosePerInstance(
                     point_to_plane=True,
                     remove_outlier=True,
                     show=show_refine_pose,
-                    use_egl=not cfg.vis.show,
                 ),
             ]
         )
@@ -1354,13 +1352,11 @@ def get_graspnet(cfg: DictConfig, ds: str, split: str) -> GraspNetEval:
                     point_to_plane=True,
                     remove_outlier=True,
                     show=show_refine_pose,
-                    use_egl=not cfg.vis.show,
                 ),
                 RefinePosePerInstance(
                     point_to_plane=True,
                     remove_outlier=True,
                     show=show_refine_pose,
-                    use_egl=not cfg.vis.show,
                 ),
             ]
         )
@@ -1457,6 +1453,16 @@ def get_coco_transforms(
     return T.Compose(transforms + to_tensor)
 
 
+def _dataset_names_for_split(value: Any, split: str, requested_splits: tuple[str, ...]) -> list[str]:
+    if value is None:
+        if split in requested_splits:
+            raise ValueError(f"data.{split}_ds must be configured when requesting the {split} split.")
+        return []
+    if isinstance(value, str):
+        return [value]
+    return list(value)
+
+
 def get_dataset(
     cfg: DictConfig,
     splits: tuple[str, ...] = ("train", "val"),
@@ -1468,9 +1474,9 @@ def get_dataset(
         cfg.data.val_ds = cfg.data.train_ds
     if cfg.data.test_ds is None and "test" in splits:
         cfg.data.test_ds = cfg.data.val_ds
-    train_ds = [cfg.data.train_ds] if isinstance(cfg.data.train_ds, str) else cfg.data.train_ds
-    val_ds = [cfg.data.val_ds] if isinstance(cfg.data.val_ds, str) else cfg.data.val_ds
-    test_ds = [cfg.data.test_ds] if isinstance(cfg.data.test_ds, str) else cfg.data.test_ds
+    train_ds = _dataset_names_for_split(cfg.data.train_ds, "train", splits)
+    val_ds = _dataset_names_for_split(cfg.data.val_ds, "val", splits)
+    test_ds = _dataset_names_for_split(cfg.data.test_ds, "test", splits)
     train_data = None
     val_data = None
     test_data = None

@@ -229,29 +229,45 @@ def choose_best(candidates: list[CandidateMetrics], criterion: str) -> Candidate
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="AR quality sweep over random seeds.")
-    parser.add_argument("--generation-root", type=Path, required=True,
-                        help="Directory containing run folders (e.g., .../train/cvpr_2025).")
-    parser.add_argument("--base-log-name", type=str, required=True,
-                        help="Base run name; seed suffix `_s<seed>` is appended automatically.")
-    parser.add_argument("--seeds", type=str, required=True,
-                        help="Comma-separated seeds, e.g. 0,1,2,3,4.")
-    parser.add_argument("--objects", type=str, required=True,
-                        help="Comma-separated dataset object indices to process; stored for auditability.")
+    parser.add_argument(
+        "--generation-root",
+        type=Path,
+        required=True,
+        help="Directory containing run folders (e.g., .../train/cvpr_2025).",
+    )
+    parser.add_argument(
+        "--base-log-name",
+        type=str,
+        required=True,
+        help="Base run name; seed suffix `_s<seed>` is appended automatically.",
+    )
+    parser.add_argument("--seeds", type=str, required=True, help="Comma-separated seeds, e.g. 0,1,2,3,4.")
+    parser.add_argument(
+        "--objects",
+        type=str,
+        required=True,
+        help="Comma-separated dataset object indices to process; stored for auditability.",
+    )
     parser.add_argument("--config-name", type=str, default="cvpr_2025")
-    parser.add_argument("--python", type=str, default=".venv/bin/python",
-                        help="Python executable used when --run-generate is set.")
-    parser.add_argument("--run-generate", action="store_true",
-                        help="Run vis_generation_process.py for every seed before scoring.")
-    parser.add_argument("--override", action="append", default=[],
-                        help="Extra Hydra override for generation command; repeatable.")
-    parser.add_argument("--token-name", type=str, default="token_512.ply",
-                        help="Final AR token mesh file to score.")
-    parser.add_argument("--points", type=int, default=4096,
-                        help="Number of points sampled on pred/gt meshes for metrics.")
-    parser.add_argument("--criterion", choices=["cd_l1", "fscore_01"], default="cd_l1",
-                        help="Seed selection criterion per object.")
-    parser.add_argument("--output-dir", type=Path, default=None,
-                        help="Directory for report outputs (defaults under generation-root).")
+    parser.add_argument(
+        "--python", type=str, default=".venv/bin/python", help="Python executable used when --run-generate is set."
+    )
+    parser.add_argument(
+        "--run-generate", action="store_true", help="Run vis_generation_process.py for every seed before scoring."
+    )
+    parser.add_argument(
+        "--override", action="append", default=[], help="Extra Hydra override for generation command; repeatable."
+    )
+    parser.add_argument("--token-name", type=str, default="token_512.ply", help="Final AR token mesh file to score.")
+    parser.add_argument(
+        "--points", type=int, default=4096, help="Number of points sampled on pred/gt meshes for metrics."
+    )
+    parser.add_argument(
+        "--criterion", choices=["cd_l1", "fscore_01"], default="cd_l1", help="Seed selection criterion per object."
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, default=None, help="Directory for report outputs (defaults under generation-root)."
+    )
     args = parser.parse_args()
 
     seeds = sorted(set(parse_int_list(args.seeds)))
@@ -306,8 +322,7 @@ def main() -> None:
         object_map = collect_object_dirs(run_generation_dir, args.token_name)
         run_to_objects[run_name] = sorted(object_map.keys())
         run_to_paths[run_name] = {
-            key: {"pred": str(paths["pred"]), "gt": str(paths["gt"])}
-            for key, paths in object_map.items()
+            key: {"pred": str(paths["pred"]), "gt": str(paths["gt"])} for key, paths in object_map.items()
         }
 
     run_key_sets = [set(keys) for keys in run_to_objects.values()]

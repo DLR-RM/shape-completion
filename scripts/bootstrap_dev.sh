@@ -72,5 +72,10 @@ else
     echo "==> Skipping Tier-2 CUDA libs"
 fi
 
+if git rev-parse --git-dir >/dev/null 2>&1; then
+    echo "==> Activating tracked Git hooks"
+    git config core.hooksPath scripts/hooks
+fi
+
 echo "Bootstrap complete."
 echo "Suggested check: uv run pytest -m \"not integration\""

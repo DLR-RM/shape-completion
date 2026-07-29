@@ -182,9 +182,15 @@ class LitModel(pl.LightningModule):
                 if wn:
                     self.log("train/weight_norm", wn["weight_2.0_norm_total"])
         if logger.isEnabledFor(DEBUG_LEVEL_2) and self.do_log(log_factor=10):
-            grad_norms = [float(v.cpu().item()) if isinstance(v, Tensor) else float(v) for k, v in gn.items() if k != "grad_2.0_norm_total"]
+            grad_norms = [
+                float(v.cpu().item()) if isinstance(v, Tensor) else float(v)
+                for k, v in gn.items()
+                if k != "grad_2.0_norm_total"
+            ]
             weight_norms = [
-                float(v.cpu().item()) if isinstance(v, Tensor) else float(v) for k, v in wn.items() if k != "weight_2.0_norm_total"
+                float(v.cpu().item()) if isinstance(v, Tensor) else float(v)
+                for k, v in wn.items()
+                if k != "weight_2.0_norm_total"
             ]
             self.log_histogram("gradients/grad_hist", grad_norms)
             self.log_histogram("gradients/weight_hist", weight_norms)
@@ -208,13 +214,13 @@ class LitModel(pl.LightningModule):
     def training_step(self, batch: dict, batch_idx: int):
         assert self.model.orig_mod.training, "Model should be in train mode during training"
         if hasattr(self.model, "loss"):
-                loss = self.model.loss(
+            loss = self.model.loss(
                 batch,
                 regression=self.regression,
                 name=self.loss,
                 reduction=self.reduction,
                 points_batch_size=self.points_batch_size,
-                    log_freq=int(getattr(cast(Any, self.trainer), "log_every_n_steps", 1)),
+                log_freq=int(getattr(cast(Any, self.trainer), "log_every_n_steps", 1)),
                 global_step=self.global_step,
                 total_steps=self.trainer.estimated_stepping_batches,
             )

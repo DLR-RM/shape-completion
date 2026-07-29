@@ -77,6 +77,7 @@ def test_main_smoke_creates_strips_animations_and_comparison(monkeypatch: Any, t
         method="both",
         labels=True,
         unconditional=False,
+        implicit=False,
         gif_duration_ms=120,
         gif_loop=0,
         gif_bg_color=[255, 255, 255],
@@ -90,7 +91,9 @@ def test_main_smoke_creates_strips_animations_and_comparison(monkeypatch: Any, t
     monkeypatch.setattr(
         script,
         "save_mp4",
-        lambda frames, path, fps: saved_mp4.append((Path(path), fps, len(frames))) or Path(path).write_text("mp4") or True,
+        lambda frames, path, fps: (
+            saved_mp4.append((Path(path), fps, len(frames))) or Path(path).write_text("mp4") or True
+        ),
     )
 
     script.main()

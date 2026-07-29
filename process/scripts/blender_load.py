@@ -5405,11 +5405,15 @@ def _parse_cli_args(argv: list[str]) -> argparse.Namespace:
         "--render-orbit", action="store_true", help="Also render orbit animation sequences (implies --render)"
     )
     render_group.add_argument(
-        "--scene-res", type=int, default=1024,
+        "--scene-res",
+        type=int,
+        default=1024,
         help="Resolution for scene/composite renders in pixels (default: 1024). Time scales quadratically.",
     )
     render_group.add_argument(
-        "--object-res", type=int, default=512,
+        "--object-res",
+        type=int,
+        default=512,
         help="Resolution for per-object solo renders in pixels (default: 512). Time scales quadratically.",
     )
 

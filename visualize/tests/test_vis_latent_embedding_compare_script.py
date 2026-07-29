@@ -171,7 +171,9 @@ def test_main_smoke_writes_outputs(monkeypatch: Any, tmp_path: Path) -> None:
     vqvae_model = _FakeModel(offset=2.0)
     created_models: list[tuple[str | None, str | None, _FakeModel]] = []
 
-    def fake_get_model(cfg: DictConfig, arch: str | None = None, weights_path: str | None = None, **kwargs: Any) -> _FakeModel:
+    def fake_get_model(
+        cfg: DictConfig, arch: str | None = None, weights_path: str | None = None, **kwargs: Any
+    ) -> _FakeModel:
         _ = cfg, kwargs
         model = vae_model if arch == "vae_demo" else vqvae_model
         created_models.append((arch, weights_path, model))

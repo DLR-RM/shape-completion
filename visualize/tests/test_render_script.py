@@ -81,7 +81,9 @@ def test_main_smoke_mesh_dir_with_individual_outputs(monkeypatch: Any, tmp_path:
     monkeypatch.setattr(
         script.ArgumentParser,
         "parse_args",
-        lambda self: Namespace(dir=input_dir, obj_type="mesh", individual=True, look_at="centroid", show=False, verbose=False),
+        lambda self: Namespace(
+            dir=input_dir, obj_type="mesh", individual=True, look_at="centroid", show=False, verbose=False
+        ),
     )
     monkeypatch.setattr(script, "suppress_known_optional_dependency_warnings", lambda: None)
     monkeypatch.setattr(script, "log_optional_dependency_summary", lambda *args, **kwargs: None)
@@ -89,11 +91,15 @@ def test_main_smoke_mesh_dir_with_individual_outputs(monkeypatch: Any, tmp_path:
     monkeypatch.setattr(script, "tqdm", lambda iterable, **kwargs: iterable)
     monkeypatch.setattr(script, "look_at", lambda *args, **kwargs: np.eye(4, dtype=np.float32))
     monkeypatch.setattr(script, "inv_trafo", lambda matrix: matrix)
-    monkeypatch.setattr(script, "stack_images", lambda images: images[0] if images else np.zeros((8, 8, 4), dtype=np.uint8))
+    monkeypatch.setattr(
+        script, "stack_images", lambda images: images[0] if images else np.zeros((8, 8, 4), dtype=np.uint8)
+    )
     monkeypatch.setattr(script, "Renderer", fake_renderer)
     monkeypatch.setattr(script, "Trimesh", _FakeMesh)
     monkeypatch.setattr(script.trimesh, "PointCloud", lambda points: _FakeMesh(color=True))
-    monkeypatch.setattr(script.trimesh, "load", lambda path, **kwargs: _FakeMesh(color=not str(path).endswith("backdrop.ply")))
+    monkeypatch.setattr(
+        script.trimesh, "load", lambda path, **kwargs: _FakeMesh(color=not str(path).endswith("backdrop.ply"))
+    )
     monkeypatch.setattr(
         script.trimesh.transformations,
         "rotation_matrix",
@@ -141,7 +147,9 @@ def test_main_smoke_single_pcd_file(monkeypatch: Any, tmp_path: Path) -> None:
     monkeypatch.setattr(
         script.ArgumentParser,
         "parse_args",
-        lambda self: Namespace(dir=obj_path, obj_type="pcd", individual=False, look_at="zero", show=False, verbose=True),
+        lambda self: Namespace(
+            dir=obj_path, obj_type="pcd", individual=False, look_at="zero", show=False, verbose=True
+        ),
     )
     monkeypatch.setattr(script, "suppress_known_optional_dependency_warnings", lambda: None)
     monkeypatch.setattr(script, "log_optional_dependency_summary", lambda *args, **kwargs: None)
@@ -149,11 +157,17 @@ def test_main_smoke_single_pcd_file(monkeypatch: Any, tmp_path: Path) -> None:
     monkeypatch.setattr(script, "tqdm", lambda iterable, **kwargs: iterable)
     monkeypatch.setattr(script, "look_at", lambda *args, **kwargs: np.eye(4, dtype=np.float32))
     monkeypatch.setattr(script, "inv_trafo", lambda matrix: matrix)
-    monkeypatch.setattr(script, "stack_images", lambda images: images[0] if images else np.zeros((8, 8, 4), dtype=np.uint8))
+    monkeypatch.setattr(
+        script, "stack_images", lambda images: images[0] if images else np.zeros((8, 8, 4), dtype=np.uint8)
+    )
     monkeypatch.setattr(script, "Renderer", fake_renderer)
     monkeypatch.setattr(script, "Trimesh", _FakeMesh)
     monkeypatch.setattr(script.trimesh, "PointCloud", lambda points: _FakeMesh(color=True))
-    monkeypatch.setattr(script.trimesh, "load", lambda path, **kwargs: _FakeMesh() if str(path).endswith("backdrop.ply") else _FakeColoredCloud())
+    monkeypatch.setattr(
+        script.trimesh,
+        "load",
+        lambda path, **kwargs: _FakeMesh() if str(path).endswith("backdrop.ply") else _FakeColoredCloud(),
+    )
     monkeypatch.setattr(
         script.trimesh.transformations,
         "rotation_matrix",
@@ -176,7 +190,9 @@ def test_main_rejects_invalid_input_path(monkeypatch: Any, tmp_path: Path) -> No
     monkeypatch.setattr(
         script.ArgumentParser,
         "parse_args",
-        lambda self: Namespace(dir=missing, obj_type="mesh", individual=False, look_at="centroid", show=False, verbose=False),
+        lambda self: Namespace(
+            dir=missing, obj_type="mesh", individual=False, look_at="centroid", show=False, verbose=False
+        ),
     )
     monkeypatch.setattr(script, "suppress_known_optional_dependency_warnings", lambda: None)
     monkeypatch.setattr(script, "log_optional_dependency_summary", lambda *args, **kwargs: None)

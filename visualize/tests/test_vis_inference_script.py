@@ -101,7 +101,9 @@ class _FakeGenerator:
         self.estimate_vertex_normals_calls: list[tuple[np.ndarray, Any]] = []
         self.__class__.instances.append(self)
 
-    def generate_grid(self, item: dict[str, Any], extraction_class: int | None = None) -> tuple[np.ndarray, np.ndarray, str]:
+    def generate_grid(
+        self, item: dict[str, Any], extraction_class: int | None = None
+    ) -> tuple[np.ndarray, np.ndarray, str]:
         _ = extraction_class
         self.generate_grid_calls.append(item)
         grid = np.ones((2, 2, 2), dtype=np.float32)
@@ -293,8 +295,8 @@ def test_process_mesh_removes_minor_components(monkeypatch: Any) -> None:
         cast(
             Any,
             _FakeMesh(
-            vertices=np.array([[0.0, 0.0, 0.0], [0.2, 0.0, 0.0], [0.0, 0.2, 0.0]], dtype=np.float32),
-            faces=np.array([[0, 1, 2], [0, 2, 1], [1, 2, 0]], dtype=np.int32),
+                vertices=np.array([[0.0, 0.0, 0.0], [0.2, 0.0, 0.0], [0.0, 0.2, 0.0]], dtype=np.float32),
+                faces=np.array([[0, 1, 2], [0, 2, 1], [1, 2, 0]], dtype=np.int32),
             ),
         ),
         min_num_triangles=2,
@@ -413,16 +415,20 @@ def test_main_save_metrics_and_uncertainty_paths(monkeypatch: Any, tmp_path: Any
             torch.as_tensor(x).unsqueeze(0) if unsqueeze and isinstance(x, np.ndarray) else torch.as_tensor(x)
         ),
     )
-    monkeypatch.setattr(script, "probs_from_logits", lambda logits: torch.tensor([[0.9, 0.7, 0.2]], dtype=torch.float32))
+    monkeypatch.setattr(
+        script, "probs_from_logits", lambda logits: torch.tensor([[0.9, 0.7, 0.2]], dtype=torch.float32)
+    )
     monkeypatch.setattr(
         script,
         "check_mesh_contains",
-        lambda mesh, points: np.pad(
-            np.array([1], dtype=np.int64), (0, max(len(points) - 1, 0)), constant_values=0
-        ),
+        lambda mesh, points: np.pad(np.array([1], dtype=np.int64), (0, max(len(points) - 1, 0)), constant_values=0),
     )
     monkeypatch.setattr(script, "eval_pointcloud", lambda *args, **kwargs: {"cd": 0.1})
-    monkeypatch.setattr(script, "occupancy_contour_plot", lambda *args, **kwargs: (figures.append(_FakeFigure()) or figures[-1], [None, None, None]))
+    monkeypatch.setattr(
+        script,
+        "occupancy_contour_plot",
+        lambda *args, **kwargs: (figures.append(_FakeFigure()) or figures[-1], [None, None, None]),
+    )
 
     script.main.__wrapped__(cfg)
 

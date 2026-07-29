@@ -38,7 +38,7 @@ class IFNet(MultiEvalMixin, MultiLossMixin, PredictMixin, Model):
         self,
         hidden_dim: int = 256,
         padding: float = 0.1,
-        displacements: None | bool | float = 0.0722,
+        displacements: bool | float | None = 0.0722,
         multires: bool = True,
         pvconv: bool = False,
         xdconv: bool = False,

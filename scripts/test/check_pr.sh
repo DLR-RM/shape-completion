@@ -6,15 +6,17 @@ REPO_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 cd "$REPO_ROOT"
 
 echo "==> ruff (scoped)"
-uv run ruff check \
+uv run --no-sync ruff check \
     dataset/__init__.py \
     dataset/scripts/process_dataset.py \
     dataset/scripts/__init__.py \
     dataset/src/__init__.py \
     dataset/src/bop.py \
+    dataset/src/bop_scene.py \
     dataset/src/coco.py \
     dataset/src/completion3d.py \
     dataset/src/fields.py \
+    dataset/src/gc6d_scene.py \
     dataset/src/graspnet.py \
     dataset/src/image.py \
     dataset/src/modelnet.py \
@@ -26,9 +28,12 @@ uv run ruff check \
     dataset/src/utils.py \
     dataset/src/ycb.py \
     dataset/tests/__init__.py \
+    dataset/tests/test_bop_scene.py \
     dataset/tests/test_coco.py \
+    dataset/tests/test_dataset_factory.py \
     dataset/tests/test_datasets.py \
     dataset/tests/test_fields.py \
+    dataset/tests/test_gc6d_scene.py \
     dataset/tests/test_graspnet.py \
     dataset/tests/test_process_dataset_script.py \
     dataset/tests/test_tabletop.py \
@@ -298,16 +303,21 @@ uv run ruff check \
     visualize/tests/test_visualizer.py \
     --select E,F,B,I,RUF --ignore E501
 
+echo "==> ruff format"
+uv run --no-sync ruff format --check .
+
 echo "==> pyright (scoped)"
-uv run pyright \
+uv run --no-sync pyright \
     dataset/__init__.py \
     dataset/scripts/process_dataset.py \
     dataset/scripts/__init__.py \
     dataset/src/__init__.py \
     dataset/src/bop.py \
+    dataset/src/bop_scene.py \
     dataset/src/coco.py \
     dataset/src/completion3d.py \
     dataset/src/fields.py \
+    dataset/src/gc6d_scene.py \
     dataset/src/graspnet.py \
     dataset/src/image.py \
     dataset/src/modelnet.py \
@@ -319,9 +329,12 @@ uv run pyright \
     dataset/src/utils.py \
     dataset/src/ycb.py \
     dataset/tests/__init__.py \
+    dataset/tests/test_bop_scene.py \
     dataset/tests/test_coco.py \
+    dataset/tests/test_dataset_factory.py \
     dataset/tests/test_datasets.py \
     dataset/tests/test_fields.py \
+    dataset/tests/test_gc6d_scene.py \
     dataset/tests/test_graspnet.py \
     dataset/tests/test_process_dataset_script.py \
     dataset/tests/test_tabletop.py \
@@ -591,10 +604,13 @@ uv run pyright \
     visualize/tests/test_visualizer.py
 
 echo "==> pytest (CPU-safe subset)"
-uv run pytest \
+uv run --no-sync pytest \
+    dataset/tests/test_bop_scene.py \
     dataset/tests/test_coco.py \
+    dataset/tests/test_dataset_factory.py \
     dataset/tests/test_datasets.py \
     dataset/tests/test_fields.py \
+    dataset/tests/test_gc6d_scene.py \
     dataset/tests/test_graspnet.py \
     dataset/tests/test_process_dataset_script.py \
     dataset/tests/test_tabletop.py \
@@ -693,4 +709,5 @@ uv run pytest \
     visualize/tests/test_vis_generation_process_script.py \
     visualize/tests/test_renderer.py \
     visualize/tests/test_visualizer.py \
+    -m "not renderer and not gpu and not integration" \
     -q

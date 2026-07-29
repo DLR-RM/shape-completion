@@ -1,7 +1,11 @@
 import numpy as np
+import pytest
 import trimesh
 
 from .. import check_mesh_contains
+
+if check_mesh_contains is None:
+    pytest.skip("libintersect is not installed", allow_module_level=True)
 
 
 def test_check_mesh_contains():

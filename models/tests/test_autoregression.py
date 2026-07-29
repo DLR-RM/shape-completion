@@ -373,7 +373,12 @@ def test_latent_autoregressive_vq_paths_cover_encoding_conditioning_predict_and_
     inputs = torch.arange(24, dtype=torch.float32).view(2, 3, 4)
     points = torch.randn(2, 3, 3)
     cond = torch.ones((2, 3, 4))
-    data = {"inputs": inputs, "points": points, "points.occ": torch.tensor([[1.0, 0.0, 1.0], [0.0, 1.0, 0.0]]), "cond": cond}
+    data = {
+        "inputs": inputs,
+        "points": points,
+        "points.occ": torch.tensor([[1.0, 0.0, 1.0], [0.0, 1.0, 0.0]]),
+        "cond": cond,
+    }
 
     model.train()
     encoded = model.encode(inputs)

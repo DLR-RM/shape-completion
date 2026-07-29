@@ -13,7 +13,7 @@ from torch import Tensor, autograd, nn, optim
 from tqdm import tqdm, trange
 from trimesh import PointCloud, Trimesh
 
-from libs import MISE, simplify_mesh
+from libs import MISE, simplify_mesh  # pyright: ignore[reportAttributeAccessIssue]
 from models import AutoregressiveModel, DiffusionModel, MCDropoutNet, Model, PSSNet, ShapeFormer, VAEModel
 from utils import (
     PARTNET_COLORS,
@@ -540,12 +540,14 @@ class Generator:
             dense = vals.reshape(nx_i, ny_i, nz_i).astype(np.float32)
 
             if return_meta:
-                results.append({
-                    "grid": dense,
-                    "voxel_size": float(vs_i),
-                    "center": center_i.astype(np.float32),
-                    "instance_idx": slot_idx,
-                })
+                results.append(
+                    {
+                        "grid": dense,
+                        "voxel_size": float(vs_i),
+                        "center": center_i.astype(np.float32),
+                        "instance_idx": slot_idx,
+                    }
+                )
             else:
                 results.append(dense)
 

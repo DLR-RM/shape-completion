@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import pytest
 import torch
 from torch import nn
@@ -77,7 +79,7 @@ def test_dino3d_apply_feature_accepts_concatenated_cls_token() -> None:
     model = Dino3D.__new__(Dino3D)
     nn.Module.__init__(model)
     cross_attn = CrossAttention()
-    model.cross_attn = cross_attn
+    cast(Any, model).cross_attn = cross_attn
 
     x = torch.zeros(2, 4, 3)
     cls_feat = torch.ones(2, 1, 3)

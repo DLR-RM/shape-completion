@@ -86,9 +86,9 @@ def _first_inputs_enc_block(ae: Shape3D2VecSet) -> Any:
 def _to_query_colors(n_queries: int) -> np.ndarray:
     idx = np.arange(n_queries, dtype=np.float32)
     # Deterministic HSV-like wheel without extra dependencies.
-    r = (0.5 + 0.5 * np.sin(2.0 * np.pi * idx / max(n_queries, 1) + 0.0))
-    g = (0.5 + 0.5 * np.sin(2.0 * np.pi * idx / max(n_queries, 1) + 2.0943951))
-    b = (0.5 + 0.5 * np.sin(2.0 * np.pi * idx / max(n_queries, 1) + 4.1887902))
+    r = 0.5 + 0.5 * np.sin(2.0 * np.pi * idx / max(n_queries, 1) + 0.0)
+    g = 0.5 + 0.5 * np.sin(2.0 * np.pi * idx / max(n_queries, 1) + 2.0943951)
+    b = 0.5 + 0.5 * np.sin(2.0 * np.pi * idx / max(n_queries, 1) + 4.1887902)
     rgb = np.stack([r, g, b], axis=1)
     return np.clip(np.round(rgb * 255.0), 0, 255).astype(np.uint8)
 
@@ -219,10 +219,15 @@ def _compute_attention_weights(
         margin = np.ones((probs.size(0),), dtype=np.float32)
 
     return (
-        inputs.squeeze(0).detach().cpu().numpy().astype(np.float32),
-        inputs_fps.squeeze(0).detach().cpu().numpy().astype(np.float32),
-        attn_mean.detach().cpu().numpy().astype(np.float32),
-    ), owners, entropy_norm_np, margin
+        (
+            inputs.squeeze(0).detach().cpu().numpy().astype(np.float32),
+            inputs_fps.squeeze(0).detach().cpu().numpy().astype(np.float32),
+            attn_mean.detach().cpu().numpy().astype(np.float32),
+        ),
+        owners,
+        entropy_norm_np,
+        margin,
+    )
 
 
 @hydra.main(config_path="../../conf", config_name="config", version_base=None)
@@ -288,8 +293,8 @@ def main(cfg: DictConfig) -> None:
             inputs = inputs[:, sel, :]
 
         with fabric.autocast(), torch.no_grad():
-            (input_points, query_points, attn_mean), owners, entropy_norm, top1_top2_margin = _compute_attention_weights(
-                ae, inputs
+            (input_points, query_points, attn_mean), owners, entropy_norm, top1_top2_margin = (
+                _compute_attention_weights(ae, inputs)
             )
 
         query_colors = _to_query_colors(query_points.shape[0])

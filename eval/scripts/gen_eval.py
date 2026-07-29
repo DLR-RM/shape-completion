@@ -10,7 +10,6 @@ import hydra
 import lightning
 import numpy as np
 import torch
-from cleanfid import fid
 from joblib import Parallel, delayed
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
@@ -50,6 +49,11 @@ from ..src.utils import render_for_fid
 
 logger = setup_logger(__name__)
 CloudBatch = np.ndarray | torch.Tensor
+
+try:
+    from cleanfid import fid  # pyright: ignore[reportMissingImports]
+except ImportError:
+    fid = None
 
 
 def _debug_level_1(msg: str) -> None:
@@ -193,6 +197,8 @@ def update_metrics_file(save_file: Path, results: dict[str, float]):
 
 @hydra.main(config_path="../../conf", config_name="config", version_base=None)
 def main(cfg: DictConfig):
+    if fid is None:
+        raise ImportError("Generation evaluation requires the optional clean-fid dependency.")
     cfg = setup_config(cfg)
     suppress_known_optional_dependency_warnings()
     log_optional_dependency_summary(logger, cfg)

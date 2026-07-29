@@ -9,10 +9,10 @@ from .model import Model
 
 
 def load_mask_rcnn_model(from_pretrained: bool = True):
-    from detectron2 import model_zoo
-    from detectron2.checkpoint import DetectionCheckpointer
-    from detectron2.config import get_cfg
-    from detectron2.modeling import build_model
+    from detectron2 import model_zoo  # pyright: ignore[reportMissingImports]
+    from detectron2.checkpoint import DetectionCheckpointer  # pyright: ignore[reportMissingImports]
+    from detectron2.config import get_cfg  # pyright: ignore[reportMissingImports]
+    from detectron2.modeling import build_model  # pyright: ignore[reportMissingImports]
 
     cfg = get_cfg()
     config_file = "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"
@@ -37,7 +37,7 @@ def load_mask_rcnn_model(from_pretrained: bool = True):
 class MaskRCNN(Model):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        from detectron2.data import MetadataCatalog
+        from detectron2.data import MetadataCatalog  # pyright: ignore[reportMissingImports]
 
         self.model, self.cfg = load_mask_rcnn_model()
         self.metadata = MetadataCatalog.get(self.cfg.DATASETS.TRAIN[0])
@@ -85,7 +85,7 @@ class MaskRCNN(Model):
             )
 
             if show:
-                from detectron2.utils.visualizer import Visualizer
+                from detectron2.utils.visualizer import Visualizer  # pyright: ignore[reportMissingImports]
 
                 v = Visualizer(data["inputs"][i].permute(1, 2, 0).cpu().numpy(), self.metadata)
                 out = v.draw_instance_predictions(instance.to("cpu"))

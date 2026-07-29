@@ -268,7 +268,9 @@ class PointNetFPModule(nn.Module):
             points_features = None
         else:
             points_coords, centers_coords, centers_features, points_features, temb = inputs
-        interpolated_features = cast(Tensor, nearest_neighbor_interpolate(points_coords, centers_coords, centers_features))
+        interpolated_features = cast(
+            Tensor, nearest_neighbor_interpolate(points_coords, centers_coords, centers_features)
+        )
         interpolated_temb = cast(Tensor, nearest_neighbor_interpolate(points_coords, centers_coords, temb))
         if points_features is not None:
             interpolated_features = torch.cat([interpolated_features, points_features], dim=1)

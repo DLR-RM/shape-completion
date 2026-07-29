@@ -267,7 +267,9 @@ def get_point_cloud(
                     raise e
             else:
                 depth = o3d.io.read_image(str(in_path)).numpy()
-            pcd = eval_data(data=depth, camera_intrinsic=intrinsic_arr, depth_scale=depth_scale, depth_trunc=depth_trunc)
+            pcd = eval_data(
+                data=depth, camera_intrinsic=intrinsic_arr, depth_scale=depth_scale, depth_trunc=depth_trunc
+            )
         else:
             raise ValueError(f"Unsupported file format: {in_path.suffix}")
 

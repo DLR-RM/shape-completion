@@ -167,16 +167,14 @@ def _parse_shapenet(
         taxonomy = []
         for category in category_ids:
             category_path = data_dir / category if partnet_dir is None else partnet_dir / category
-            num_instances = (
-                sum(1 for c in category_path.iterdir() if c.is_dir())
-                if category_path.is_dir()
-                else 0
+            num_instances = sum(1 for c in category_path.iterdir() if c.is_dir()) if category_path.is_dir() else 0
+            taxonomy.append(
+                {
+                    "synsetId": category,
+                    "name": category,
+                    "numInstances": num_instances,
+                }
             )
-            taxonomy.append({
-                "synsetId": category,
-                "name": category,
-                "numInstances": num_instances,
-            })
 
     metadata = dict()
     for category in category_ids:

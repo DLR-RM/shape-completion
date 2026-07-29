@@ -34,7 +34,9 @@ class _FakeMesh:
 
 class _FakePointCloud:
     def __init__(self, points: np.ndarray | None = None) -> None:
-        self.vertices = np.asarray(points if points is not None else [[0.0, 0.0, 0.0], [0.1, 0.0, 0.0]], dtype=np.float32)
+        self.vertices = np.asarray(
+            points if points is not None else [[0.0, 0.0, 0.0], [0.1, 0.0, 0.0]], dtype=np.float32
+        )
         self.transforms: list[np.ndarray] = []
         self.scales: list[float] = []
 
@@ -71,6 +73,9 @@ def test_main_smoke_writes_generation_panels(monkeypatch: Any, tmp_path: Path) -
     figure_root = Path("/data/figures")
     renderer_holder: dict[str, _FakeRenderer] = {}
     set_levels: list[int] = []
+    monkeypatch.setenv("SHAPENET_ROOT", str(dataset_root))
+    monkeypatch.setenv("LOG_ROOT", str(train_root))
+    monkeypatch.setenv("FIGURE_ROOT", str(figure_root))
 
     def fake_path(value: str | Path) -> Path:
         real = Path(value)
@@ -97,7 +102,9 @@ def test_main_smoke_writes_generation_panels(monkeypatch: Any, tmp_path: Path) -
     monkeypatch.setattr(script, "set_log_level", lambda level: set_levels.append(level))
     monkeypatch.setattr(script, "Renderer", fake_renderer)
     monkeypatch.setattr(script, "Trimesh", _FakeMesh)
-    monkeypatch.setattr(script.trimesh, "PointCloud", lambda points: _FakePointCloud(np.asarray(points, dtype=np.float32)))
+    monkeypatch.setattr(
+        script.trimesh, "PointCloud", lambda points: _FakePointCloud(np.asarray(points, dtype=np.float32))
+    )
     monkeypatch.setattr(script.trimesh, "load", lambda path: _FakeMesh())
     monkeypatch.setattr(
         script.trimesh.transformations,

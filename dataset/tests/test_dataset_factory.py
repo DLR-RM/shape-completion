@@ -125,3 +125,13 @@ def test_get_dataset_routes_gc6d_to_scene_factory(monkeypatch: pytest.MonkeyPatc
 
     assert calls == [("gc6d_cross_object_test", "test")]
     assert datasets["test"] is sentinel
+
+
+def test_get_dataset_rejects_missing_requested_split() -> None:
+    cfg = _base_cfg(show=False, save=False, mesh=False)
+    cfg.data.train_ds = None
+    cfg.data.val_ds = None
+    cfg.data.test_ds = None
+
+    with pytest.raises(ValueError, match=r"data\.test_ds must be configured"):
+        get_dataset(cfg, splits=("test",))

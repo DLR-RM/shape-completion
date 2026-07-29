@@ -152,9 +152,17 @@ class FlowSequential(nn.Sequential):
     # Adapted from https://github.com/ikostrikov/pytorch-flows/blob/master/flows.py
     """
 
-    def __init__(self, *args, prior: torch.distributions.Distribution):
+    def __init__(self, *args: nn.Module, prior: torch.distributions.MultivariateNormal):
         super().__init__(*args)
-        self.prior = prior
+        self.register_buffer("_prior_loc", cast(Tensor, prior.loc))
+        self.register_buffer("_prior_covariance_matrix", cast(Tensor, prior.covariance_matrix))
+
+    @property
+    def prior(self) -> torch.distributions.MultivariateNormal:
+        return torch.distributions.MultivariateNormal(
+            self._prior_loc,
+            covariance_matrix=self._prior_covariance_matrix,
+        )
 
     def forward(self, inputs: Tensor, **kwargs) -> tuple[Tensor, Tensor]:
         inputs = inputs.view(inputs.size(0), -1)
@@ -207,5 +215,5 @@ class RealNVP(FlowSequential):
             modules.append(Permute([i for i in reversed(range(dim))]))
         modules = list(reversed(modules[:-1]))
 
-        prior = torch.distributions.MultivariateNormal(torch.zeros(dim).cuda(), torch.eye(dim).cuda())
+        prior = torch.distributions.MultivariateNormal(torch.zeros(dim), torch.eye(dim))
         super().__init__(*modules, prior=prior)

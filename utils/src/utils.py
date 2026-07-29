@@ -239,7 +239,7 @@ def load_mesh(path: str | Path, load_with: str | None = None, **kwargs: Any) -> 
         return np.asarray(mesh.vertices), np.asarray(mesh.triangles)
 
     def load_pymeshlab() -> tuple[np.ndarray, np.ndarray]:
-        import pymeshlab
+        import pymeshlab  # pyright: ignore[reportMissingImports]
 
         ms = cast(Any, pymeshlab).MeshSet()
         ms.load_new_mesh(str(path))
@@ -337,7 +337,7 @@ def save_mesh(
         )
 
     def save_pymeshlab():
-        import pymeshlab
+        import pymeshlab  # pyright: ignore[reportMissingImports]
 
         ms = cast(Any, pymeshlab).MeshSet()
         pymesh = cast(Any, pymeshlab).Mesh(vertex_matrix=vertices, face_matrix=faces)
@@ -1771,6 +1771,14 @@ def git_submodule_path(submodule_name_or_path: str | Path) -> Path:
                 submodule_path = git_show_toplevel(submodule_name_or_path)
             else:
                 submodule_path = git_show_toplevel(submodule_name_or_path.parent)
+
+            project_root = get_git_root()
+            if submodule_path == project_root:
+                relative_path = submodule_name_or_path.resolve().relative_to(project_root.resolve())
+                if relative_path.parts:
+                    flat_module_path = project_root / relative_path.parts[0]
+                    if flat_module_path.is_dir():
+                        submodule_path = flat_module_path
         else:
             raise FileNotFoundError(f"Path {submodule_name_or_path} does not exist")
 

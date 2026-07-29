@@ -8,7 +8,6 @@ from typing import cast
 
 import lightning.pytorch as pl
 import numpy as np
-from cleanfid import fid
 from joblib import Parallel, delayed
 from lightning.pytorch.utilities import rank_zero_only
 from tqdm import tqdm
@@ -21,6 +20,11 @@ from .visualize import VisualizeCallback
 
 logger = setup_logger(__name__)
 debug_level_2 = getattr(logger, "debug_level_2", logger.debug)
+
+try:
+    from cleanfid import fid  # pyright: ignore[reportMissingImports]
+except ImportError:
+    fid = None
 
 _MeshGT = Trimesh | str
 _ItemValue = str | np.ndarray | Trimesh
@@ -172,6 +176,8 @@ class EvalMeshesCallback(VisualizeCallback):
             results.update(mean_results)
 
         if self.fid_stats_name and any(metric in self.metrics for metric in ("fid", "kid", "all")):
+            if fid is None:
+                raise ImportError("FID and KID evaluation require the optional clean-fid dependency.")
             metric_names: list[str] = []
             if "fid" in self.metrics or "all" in self.metrics:
                 metric_names.append("FID")

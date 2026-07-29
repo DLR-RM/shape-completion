@@ -46,7 +46,9 @@ class _PointnetSAModuleBase(nn.Module):
 
         xyz_flipped = xyz.transpose(1, 2).contiguous()
         new_xyz = (
-            cast(torch.Tensor, gather(xyz_flipped, furthest_point_sampling(xyz, self.npoint))).transpose(1, 2).contiguous()
+            cast(torch.Tensor, gather(xyz_flipped, furthest_point_sampling(xyz, self.npoint)))
+            .transpose(1, 2)
+            .contiguous()
             if self.npoint is not None
             else None
         )

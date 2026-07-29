@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 
 try:
-    from intersect_ext import TriangleHash as _TriangleHash
+    from intersect_ext import TriangleHash as _TriangleHash  # pyright: ignore[reportMissingImports]
 except ImportError:
     warnings.warn(
         "The `intersect` library is not installed. "

@@ -2,11 +2,12 @@ from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
-import pymeshlab
 import pytest
 from trimesh import Trimesh
 
 from process.scripts import make_watertight as mw
+
+pymeshlab = pytest.importorskip("pymeshlab")
 
 
 def test_load_falls_back_when_primary_loader_fails(monkeypatch: pytest.MonkeyPatch) -> None:

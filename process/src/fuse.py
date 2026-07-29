@@ -9,7 +9,7 @@ from scipy import ndimage
 from scipy.spatial.transform import Rotation
 from trimesh import Trimesh
 
-from libs import PyViews, tsdf_fusion
+from libs import PyViews, tsdf_fusion  # pyright: ignore[reportAttributeAccessIssue]
 from utils import get_points, setup_logger
 
 from .utils import extract

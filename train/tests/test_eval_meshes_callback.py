@@ -18,7 +18,7 @@ def _init_callback(monkeypatch, **kwargs: Any) -> eval_meshes_module.EvalMeshesC
     monkeypatch.setattr(eval_meshes_module, "get_num_workers", lambda num_workers=None: 1)
     callback = eval_meshes_module.EvalMeshesCallback(**kwargs)
     monkeypatch.setattr(eval_meshes_module, "tqdm_joblib", lambda *_args, **_kwargs: nullcontext())
-    monkeypatch.setattr(eval_meshes_module, "delayed", lambda fn: (lambda *args, **kw: lambda: fn(*args, **kw)))
+    monkeypatch.setattr(eval_meshes_module, "delayed", lambda fn: lambda *args, **kw: lambda: fn(*args, **kw))
     callback.__dict__["parallel"] = lambda jobs: [job() for job in jobs]
     return callback
 

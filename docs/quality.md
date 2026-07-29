@@ -14,6 +14,16 @@ The repository uses three validation lanes:
 
 `check_nightly.sh` is the broad pytest lane for longer local or scheduled runs. Renderer tests are marked separately because they depend on headless rendering and GPU/display details.
 
+GitHub Actions runs `check_pr.sh` for pull requests and pushes to `main`. The workflow installs the locked `full` environment but does not compile the optional CUDA extensions.
+
+The tracked hooks use the same commands:
+
+```bash
+git config core.hooksPath scripts/hooks
+```
+
+`commit-msg` checks the Conventional Commit subject. `pre-push` runs `check_pr.sh`. The development bootstrap command configures the hooks for a clone.
+
 For paper-command sanity, run:
 
 ```bash

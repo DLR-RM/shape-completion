@@ -1,6 +1,10 @@
 import numpy as np
+import pytest
 
-from .. import PyViews, tsdf_fusion
+from .. import PyViews, tsdf_fusion  # pyright: ignore[reportAttributeAccessIssue]
+
+if PyViews is None or tsdf_fusion is None:
+    pytest.skip("libfusion is not installed", allow_module_level=True)
 
 
 def test_fusion():

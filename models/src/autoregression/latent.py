@@ -378,8 +378,12 @@ class LatentAutoregressiveModel(MultiEvalMixin, AutoregressiveModel):
             conditioning = self.get_conditioning(conditioning, **kwargs)
 
         gen_result = self._autoregressor.generate(
-            c=conditioning, batch_size=batch_size, temperature=temperature, topk=topk,
-            progress=progress, return_intermediates=return_intermediates,
+            c=conditioning,
+            batch_size=batch_size,
+            temperature=temperature,
+            topk=topk,
+            progress=progress,
+            return_intermediates=return_intermediates,
         )
 
         if return_intermediates:
@@ -387,7 +391,9 @@ class LatentAutoregressiveModel(MultiEvalMixin, AutoregressiveModel):
             logits = cast(
                 Tensor,
                 self._discretizer.predict(
-                    points=points, feature=self.decode(indices_or_latents, **kwargs), points_batch_size=points_batch_size
+                    points=points,
+                    feature=self.decode(indices_or_latents, **kwargs),
+                    points_batch_size=points_batch_size,
                 ),
             )
             return logits, intermediates

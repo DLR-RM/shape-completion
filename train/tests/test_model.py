@@ -129,10 +129,10 @@ def _attach_trainer(
         lit,
         "_trainer",
         SimpleNamespace(
-        global_step=global_step,
-        log_every_n_steps=log_every_n_steps,
-        estimated_stepping_batches=estimated_stepping_batches,
-        logger=SimpleNamespace(experiment=exp),
+            global_step=global_step,
+            log_every_n_steps=log_every_n_steps,
+            estimated_stepping_batches=estimated_stepping_batches,
+            logger=SimpleNamespace(experiment=exp),
         ),
     )
     return exp

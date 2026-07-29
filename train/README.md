@@ -66,23 +66,23 @@ The `LitModel` class wraps any model from the `models/` submodule and handles:
 from train.src.model import LitModel
 
 lit_model = LitModel(
-    name="onet",                     # Architecture name
-    output_dir="logs/onet",          # Save directory
-    model=model,                     # From models.get_model()
-    optimizer=optimizer,             # Pre-configured optimizer (default: AdamW)
-    scheduler=scheduler,             # Optional LR scheduler
-    interval="epoch",                # Scheduler step interval: "epoch" | "step"
-    frequency=1,                     # Scheduler step frequency
-    hypergradients=False,            # Enable hypergradient optimizer (gdtuo)
-    monitor="val/f1",                # Metric for checkpointing/early stopping
-    metrics=None,                    # Restrict logged metrics to this list
-    threshold=0.5,                   # Occupancy threshold
-    regression=False,                # SDF regression mode (vs. binary occupancy)
-    loss=None,                       # Loss function name passed to model.loss()
-    reduction="mean",                # Loss reduction method
-    points_batch_size=None,          # Query points per batch for model.loss()
-    sync_dist=False,                 # Sync metrics across GPUs (auto-set for multi-GPU)
-    ema=0.999,                       # EMA decay rate (None to disable)
+    name="onet",  # Architecture name
+    output_dir="logs/onet",  # Save directory
+    model=model,  # From models.get_model()
+    optimizer=optimizer,  # Pre-configured optimizer (default: AdamW)
+    scheduler=scheduler,  # Optional LR scheduler
+    interval="epoch",  # Scheduler step interval: "epoch" | "step"
+    frequency=1,  # Scheduler step frequency
+    hypergradients=False,  # Enable hypergradient optimizer (gdtuo)
+    monitor="val/f1",  # Metric for checkpointing/early stopping
+    metrics=None,  # Restrict logged metrics to this list
+    threshold=0.5,  # Occupancy threshold
+    regression=False,  # SDF regression mode (vs. binary occupancy)
+    loss=None,  # Loss function name passed to model.loss()
+    reduction="mean",  # Loss reduction method
+    points_batch_size=None,  # Query points per batch for model.loss()
+    sync_dist=False,  # Sync metrics across GPUs (auto-set for multi-GPU)
+    ema=0.999,  # EMA decay rate (None to disable)
 )
 ```
 
@@ -108,22 +108,22 @@ from train.src.data_module import LitDataModule
 
 datamodule = LitDataModule(
     train=train_dataset,
-    val=val_dataset,              # Optional (required if overfit=False)
-    test=test_dataset,            # Optional (required for test_dataloader)
+    val=val_dataset,  # Optional (required if overfit=False)
+    test=test_dataset,  # Optional (required for test_dataloader)
     batch_size=32,
     batch_size_val=32,
     num_workers=8,
-    num_workers_val=8,            # Separate worker count for validation
-    shuffle_val=False,            # Shuffle validation data
-    overfit=False,                # Use training set for validation (debug)
-    prefetch_factor=2,            # Prefetch batches per worker
-    pin_memory=False,             # Pin memory for GPU transfer
-    weighted=False,               # Weighted sampling by category
-    seed=0,                       # RNG seed for reproducibility
-    collate_fn=collate_fn,        # Custom collation function
-    cache=False,                  # Use SharedDataLoader for in-memory caching
-    hash_items=False,             # Hash items for SharedDataLoader cache keys
-    share_memory=False,           # Share arrays across workers (distributed)
+    num_workers_val=8,  # Separate worker count for validation
+    shuffle_val=False,  # Shuffle validation data
+    overfit=False,  # Use training set for validation (debug)
+    prefetch_factor=2,  # Prefetch batches per worker
+    pin_memory=False,  # Pin memory for GPU transfer
+    weighted=False,  # Weighted sampling by category
+    seed=0,  # RNG seed for reproducibility
+    collate_fn=collate_fn,  # Custom collation function
+    cache=False,  # Use SharedDataLoader for in-memory caching
+    hash_items=False,  # Hash items for SharedDataLoader cache keys
+    share_memory=False,  # Share arrays across workers (distributed)
 )
 ```
 
@@ -143,10 +143,10 @@ from train.src.schedulers import LinearWarmupCosineAnnealingLR
 
 scheduler = LinearWarmupCosineAnnealingLR(
     optimizer,
-    warmup_iters=1000,           # Linear warmup steps
-    total_iters=100000,          # Total training steps
-    warmup_start_lr=0.0,         # Starting LR (default: 0)
-    min_lr=1e-6,                 # Final LR after cosine decay (float or list)
+    warmup_iters=1000,  # Linear warmup steps
+    total_iters=100000,  # Total training steps
+    warmup_start_lr=0.0,  # Starting LR (default: 0)
+    min_lr=1e-6,  # Final LR after cosine decay (float or list)
 )
 ```
 
@@ -182,12 +182,12 @@ Generates meshes from model predictions using MISE (Multi-resolution ISOsurface 
 from train.src.callbacks import GenerateMeshesCallback
 
 callback = GenerateMeshesCallback(
-    every_n_evals=5,             # Generate every N validation runs
-    resolution=128,              # MISE grid resolution
-    padding=0.1,                 # Mesh padding
-    threshold=0.5,               # Occupancy threshold
-    points_batch_size=None,      # Query points per batch (default: resolution^3)
-    precision=None,              # Override autocast precision
+    every_n_evals=5,  # Generate every N validation runs
+    resolution=128,  # MISE grid resolution
+    padding=0.1,  # Mesh padding
+    threshold=0.5,  # Occupancy threshold
+    points_batch_size=None,  # Query points per batch (default: resolution^3)
+    precision=None,  # Override autocast precision
 )
 ```
 
@@ -202,19 +202,19 @@ from train.src.callbacks import VisualizeCallback
 
 callback = VisualizeCallback(
     every_n_evals=5,
-    n_per_category=4,            # Samples per category (must be 1 or even)
-    n_total=None,                # Total samples cap (at least one of n_per_category/n_total required)
-    meshes=True,                 # Render generated meshes
-    inputs=True,                 # Render input point clouds alongside meshes
-    logits=False,                # Render model logits as colored point clouds
-    render=None,                 # Model render mode: "color" | "normals" | "mesh" | None
-    front=True,                  # Render front view
-    back=False,                  # Render back view
-    upload_to_wandb=False,       # Upload to W&B (otherwise saves to disk + TensorBoard)
-    width=512,                   # Render width in pixels
-    height=512,                  # Render height in pixels
-    show=False,                  # Interactive matplotlib display
-    progress=False,              # Show progress bars during generation
+    n_per_category=4,  # Samples per category (must be 1 or even)
+    n_total=None,  # Total samples cap (at least one of n_per_category/n_total required)
+    meshes=True,  # Render generated meshes
+    inputs=True,  # Render input point clouds alongside meshes
+    logits=False,  # Render model logits as colored point clouds
+    render=None,  # Model render mode: "color" | "normals" | "mesh" | None
+    front=True,  # Render front view
+    back=False,  # Render back view
+    upload_to_wandb=False,  # Upload to W&B (otherwise saves to disk + TensorBoard)
+    width=512,  # Render width in pixels
+    height=512,  # Render height in pixels
+    show=False,  # Interactive matplotlib display
+    progress=False,  # Show progress bars during generation
     resolution=128,
     padding=0.1,
     points_batch_size=None,
@@ -234,13 +234,13 @@ from train.src.callbacks import EvalMeshesCallback
 
 callback = EvalMeshesCallback(
     every_n_evals=5,
-    n_per_category=None,         # Samples per category
-    n_total=456,                 # Total samples (default: 57*8; must satisfy n_total*12 >= 2048 for FID)
+    n_per_category=None,  # Samples per category
+    n_total=456,  # Total samples (default: 57*8; must satisfy n_total*12 >= 2048 for FID)
     upload_to_wandb=False,
-    metrics="all",               # String: "all" | "mesh" | "pcd" | "fid" | "kid" | "clip"
-    fid_stats_name=None,         # Pre-computed FID reference stats name (cleanfid)
-    prefix="val/mesh/",          # Metric logging prefix
-    num_workers=None,             # Parallel workers for mesh evaluation (joblib)
+    metrics="all",  # String: "all" | "mesh" | "pcd" | "fid" | "kid" | "clip"
+    fid_stats_name=None,  # Pre-computed FID reference stats name (cleanfid)
+    prefix="val/mesh/",  # Metric logging prefix
+    num_workers=None,  # Parallel workers for mesh evaluation (joblib)
     progress=False,
     resolution=128,
     padding=0.1,
@@ -268,8 +268,8 @@ from train.src.callbacks import EMACallback
 callback = EMACallback(
     decay=0.999,
     validate_original_weights=False,  # If True, validate with original weights (not EMA)
-    every_n_steps=1,                  # Apply EMA update every N optimizer steps
-    cpu_offload=False,                # Offload EMA weights to CPU
+    every_n_steps=1,  # Apply EMA update every N optimizer steps
+    cpu_offload=False,  # Offload EMA weights to CPU
 )
 ```
 
@@ -283,11 +283,11 @@ Runs test-set mesh evaluation and visualization after training:
 from train.src.callbacks import TestMeshesCallback
 
 callback = TestMeshesCallback(
-    test=True,                   # Run mesh evaluation against ground truth
-    meshes=True,                 # Generate meshes
-    inputs=True,                 # Include input visualization
-    front=True,                  # Render front view
-    back=True,                   # Render back view
+    test=True,  # Run mesh evaluation against ground truth
+    meshes=True,  # Generate meshes
+    inputs=True,  # Include input visualization
+    front=True,  # Render front view
+    back=True,  # Render back view
     upload_to_wandb=False,
     width=512,
     height=512,
@@ -521,6 +521,7 @@ The main training script (`scripts/train.py`) follows this flow:
 ```python
 from lightning.pytorch.callbacks import Callback
 
+
 class MyCallback(Callback):
     def on_validation_epoch_end(self, trainer, pl_module):
         # Access the underlying model (unwrap compile + LitModel)
@@ -540,8 +541,17 @@ For models with custom loss computation, implement a `loss()` method on the mode
 
 ```python
 class MyModel(Model):
-    def loss(self, batch, regression=False, name=None, reduction="mean",
-             points_batch_size=None, log_freq=50, global_step=0, total_steps=1000):
+    def loss(
+        self,
+        batch,
+        regression=False,
+        name=None,
+        reduction="mean",
+        points_batch_size=None,
+        log_freq=50,
+        global_step=0,
+        total_steps=1000,
+    ):
         loss = ...
 
         # Log additional metrics (displayed based on logger verbosity)
@@ -556,9 +566,18 @@ For models with custom evaluation, implement an `evaluate()` method. LitModel de
 
 ```python
 class MyModel(Model):
-    def evaluate(self, batch, name=None, threshold=0.5, regression=False,
-                 reduction="mean", metrics=None, points_batch_size=None,
-                 global_step=0, total_steps=1000):
+    def evaluate(
+        self,
+        batch,
+        name=None,
+        threshold=0.5,
+        regression=False,
+        reduction="mean",
+        metrics=None,
+        points_batch_size=None,
+        global_step=0,
+        total_steps=1000,
+    ):
         result = {
             "loss": loss_value,
             "iou": iou_value,

@@ -1711,7 +1711,7 @@ class DinoInstSeg(MultiEvalMixin, Model):
             tgt_masks = torch.cat([mask_gt_list[i][j] for i, (_, j) in enumerate(match)]).type_as(pred_masks)
 
         if self.sample:
-            from detectron2.projects.point_rend.point_features import (
+            from detectron2.projects.point_rend.point_features import (  # pyright: ignore[reportMissingImports]
                 get_uncertain_point_coords_with_randomness,
                 point_sample,
             )
@@ -3526,8 +3526,8 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
 
         intersection = (pred_bin.unsqueeze(1) & tgt_bin.unsqueeze(0)).sum(dim=2).float()
         union = (pred_bin.unsqueeze(1) | tgt_bin.unsqueeze(0)).sum(dim=2).float()
-        pred_sum = pred_bin.sum(dim=1).float()   # [K_pred]
-        tgt_sum = tgt_bin.sum(dim=1).float()     # [K_gt]
+        pred_sum = pred_bin.sum(dim=1).float()  # [K_pred]
+        tgt_sum = tgt_bin.sum(dim=1).float()  # [K_gt]
         pairwise = intersection / union.clamp_min(1.0)
 
         row, col = linear_sum_assignment(-pairwise.cpu().numpy())

@@ -282,8 +282,8 @@ from trimesh import Trimesh
 mesh = Trimesh(vertices, faces)
 item = {
     "pointcloud": gt_pointcloud,  # (N, 3) ground truth
-    "points": query_points,       # (M, 3) query points
-    "points.occ": occupancies,    # (M,) ground truth occupancy
+    "points": query_points,  # (M, 3) query points
+    "points.occ": occupancies,  # (M,) ground truth occupancy
 }
 
 results = eval_mesh_pcd(mesh, item, n_points=100000)
@@ -311,8 +311,7 @@ f1 = distance_fn(cloud1, cloud2, metric=DistanceMetrics.F1)
 from eval.src.gen_metrics import paired_distances, cov_mmd, DistanceMetrics
 
 # Compute pairwise distances between generated and reference sets
-distances = paired_distances(generated_clouds, reference_clouds,
-                            metric=DistanceMetrics.CHAMFER)
+distances = paired_distances(generated_clouds, reference_clouds, metric=DistanceMetrics.CHAMFER)
 
 # Compute COV and MMD from distance matrix
 cov, mmd = cov_mmd(distances, num_points=2048)
@@ -324,11 +323,11 @@ cov, mmd = cov_mmd(distances, num_points=2048)
 from eval.src.utils import eval_pointcloud
 
 result = eval_pointcloud(
-    pointcloud_pred,    # (N, 3) predicted
-    pointcloud_gt,      # (M, 3) ground truth
+    pointcloud_pred,  # (N, 3) predicted
+    pointcloud_gt,  # (M, 3) ground truth
     normals_pred=None,  # (N, 3) optional
-    normals_gt=None,    # (M, 3) optional
-    method="tensor",    # "tensor" (default, GPU) | "kdtree" | "faiss"
+    normals_gt=None,  # (M, 3) optional
+    method="tensor",  # "tensor" (default, GPU) | "kdtree" | "faiss"
 )
 # Returns: {'chamfer-l1': ..., 'chamfer-l2': ..., 'f1': ..., 'precision': ..., 'recall': ..., ...}
 ```
@@ -340,8 +339,8 @@ from eval.src.utils import eval_occupancy
 import torch
 
 result = eval_occupancy(
-    occ_pred,   # (N,) predicted occupancy probabilities
-    occ_gt,     # (N,) ground truth occupancy (0/1)
+    occ_pred,  # (N,) predicted occupancy probabilities
+    occ_gt,  # (N,) ground truth occupancy (0/1)
     threshold=0.5,
 )
 # Returns: {'iou': ..., 'f1': ..., 'precision': ..., 'recall': ..., 'acc': ..., 'tp': ..., ...}
@@ -353,8 +352,8 @@ result = eval_occupancy(
 from eval.src.prdc import compute_prdc
 
 metrics = compute_prdc(
-    real_features,   # (N, D) feature embeddings of real samples
-    fake_features,   # (N, D) feature embeddings of generated samples
+    real_features,  # (N, D) feature embeddings of real samples
+    fake_features,  # (N, D) feature embeddings of generated samples
     nearest_k=5,
 )
 # Returns: {'precision': ..., 'recall': ..., 'density': ..., 'coverage': ...}
@@ -437,10 +436,7 @@ Mesh evaluation supports parallel processing via `joblib`:
 from joblib import Parallel, delayed
 from eval.scripts.mesh_eval import single_eval
 
-results = Parallel(n_jobs=-1)(
-    delayed(single_eval)(item, save_dir, dataset)
-    for item in tqdm(dataloader)
-)
+results = Parallel(n_jobs=-1)(delayed(single_eval)(item, save_dir, dataset) for item in tqdm(dataloader))
 ```
 
 ## Command Line Examples

@@ -3,7 +3,7 @@ import warnings
 from trimesh import Trimesh
 
 try:
-    from simplify_ext import mesh_simplify
+    from simplify_ext import mesh_simplify  # pyright: ignore[reportMissingImports]
 except (ImportError, ModuleNotFoundError):
     warnings.warn(
         "The `simplify` library is not installed. Please install it using `python libs/libmanager.py install simplify`",

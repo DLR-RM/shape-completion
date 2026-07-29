@@ -132,7 +132,7 @@ def distance_fn(
 
     if metric in [DistanceMetrics.CHAMFER, DistanceMetrics.FEAT, DistanceMetrics.F1]:
         if cloud1.size(-1) != 3 or cloud2.size(-1) != 3:
-            from pytorch3d.loss import chamfer_distance as cd_pytorch3d
+            from pytorch3d.loss import chamfer_distance as cd_pytorch3d  # pyright: ignore[reportMissingImports]
 
             d1, d2 = cd_pytorch3d(cloud1, cloud2, batch_reduction=None, point_reduction=None)[0]
         else:

@@ -5,7 +5,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 try:
-    import pvconv_ext as _ext
+    import pvconv_ext as _ext  # pyright: ignore[reportMissingImports]
 except (ImportError, ModuleNotFoundError):
     try:
         from torch.utils.cpp_extension import load

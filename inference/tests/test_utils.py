@@ -28,7 +28,9 @@ class _FakePointCloud:
         return self
 
     def scale(self, factor: float, center: tuple[float, float, float] = (0, 0, 0)) -> _FakePointCloud:
-        self.points = (self.points - np.asarray(center, dtype=np.float32)) * factor + np.asarray(center, dtype=np.float32)
+        self.points = (self.points - np.asarray(center, dtype=np.float32)) * factor + np.asarray(
+            center, dtype=np.float32
+        )
         return self
 
     def transform(self, matrix: np.ndarray) -> _FakePointCloud:
@@ -93,7 +95,9 @@ class _FakePlanePointCloud(_FakePointCloud):
         self.statistical_calls: list[tuple[int, float]] = []
         self.radius_calls: list[tuple[int, float]] = []
 
-    def segment_plane(self, *, distance_threshold: float, ransac_n: int, num_iterations: int) -> tuple[np.ndarray, list[int]]:
+    def segment_plane(
+        self, *, distance_threshold: float, ransac_n: int, num_iterations: int
+    ) -> tuple[np.ndarray, list[int]]:
         _ = distance_threshold, ransac_n, num_iterations
         return self.plane_model, self.plane_indices.tolist()
 
@@ -236,7 +240,9 @@ def test_get_point_cloud_depth_branch_applies_rotation_and_crop(monkeypatch: Any
     )
     _FakePointCloud.instances.clear()
     monkeypatch.setattr(script.np, "load", _fake_load)
-    monkeypatch.setattr(script, "unproject_kinect_depth", lambda *_args, **_kwargs: (unproject_points, unproject_intrinsic))
+    monkeypatch.setattr(
+        script, "unproject_kinect_depth", lambda *_args, **_kwargs: (unproject_points, unproject_intrinsic)
+    )
     monkeypatch.setattr(script, "eval_transformation_data", lambda value: value)
     monkeypatch.setattr(script, "get_rot_from_extrinsic", lambda value: (rot_x, rot_y, rot_z))
     monkeypatch.setattr(script, "o3d", fake_o3d)
@@ -262,7 +268,9 @@ def test_get_point_cloud_image_branch_and_unsupported_suffix(monkeypatch: Any, t
         io=SimpleNamespace(read_image=lambda path: SimpleNamespace(numpy=lambda: np.array([[4.0]], dtype=np.float32))),
     )
 
-    def _fake_eval_data(*, data: np.ndarray, camera_intrinsic: np.ndarray, depth_scale: float, depth_trunc: float) -> _FakePointCloud:
+    def _fake_eval_data(
+        *, data: np.ndarray, camera_intrinsic: np.ndarray, depth_scale: float, depth_trunc: float
+    ) -> _FakePointCloud:
         calls["data"] = np.asarray(data)
         calls["intrinsic"] = np.asarray(camera_intrinsic)
         calls["depth_scale"] = depth_scale
@@ -273,7 +281,9 @@ def test_get_point_cloud_image_branch_and_unsupported_suffix(monkeypatch: Any, t
     monkeypatch.setattr(script, "eval_data", _fake_eval_data)
 
     intrinsic = np.diag([4.0, 5.0, 1.0]).astype(np.float32)
-    pcd, intrinsic_arr, extrinsic_arr = script.get_point_cloud(image_path, intrinsic=intrinsic, depth_scale=42.0, depth_trunc=0.9)
+    pcd, intrinsic_arr, extrinsic_arr = script.get_point_cloud(
+        image_path, intrinsic=intrinsic, depth_scale=42.0, depth_trunc=0.9
+    )
 
     assert pcd is fake_pcd
     np.testing.assert_allclose(calls["data"], np.array([[4.0]], dtype=np.float32), rtol=0.0, atol=1e-8)
@@ -289,7 +299,9 @@ def test_get_point_cloud_image_branch_and_unsupported_suffix(monkeypatch: Any, t
 
 def test_get_input_data_from_point_cloud_centers_and_scales_extent(monkeypatch: Any) -> None:
     pcd = _FakePointCloud([[0.0, 0.0, 0.0], [2.0, 4.0, 2.0], [4.0, 2.0, 2.0]])
-    monkeypatch.setattr(script, "o3d", SimpleNamespace(geometry=SimpleNamespace(AxisAlignedBoundingBox=_FakeAxisAlignedBoundingBox)))
+    monkeypatch.setattr(
+        script, "o3d", SimpleNamespace(geometry=SimpleNamespace(AxisAlignedBoundingBox=_FakeAxisAlignedBoundingBox))
+    )
 
     points, loc, scale_value = script.get_input_data_from_point_cloud(
         pcd,
@@ -333,9 +345,13 @@ def test_get_input_data_from_point_cloud_subsamples_noises_and_voxelizes(monkeyp
     )
 
     assert _FakeVoxelizer.last_points is not None
-    np.testing.assert_allclose(_FakeVoxelizer.last_points, np.array([[0.6, 0.1, 0.1], [0.1, 0.1, 0.1]], dtype=np.float32))
+    np.testing.assert_allclose(
+        _FakeVoxelizer.last_points, np.array([[0.6, 0.1, 0.1], [0.1, 0.1, 0.1]], dtype=np.float32)
+    )
     assert _FakeVoxelizer.last_init == (8, 0.2, "kdtree")
-    np.testing.assert_allclose(points, np.array([[1.2, 0.2, 0.2], [0.2, 0.2, 0.2]], dtype=np.float32), rtol=0.0, atol=1e-8)
+    np.testing.assert_allclose(
+        points, np.array([[1.2, 0.2, 0.2], [0.2, 0.2, 0.2]], dtype=np.float32), rtol=0.0, atol=1e-8
+    )
     np.testing.assert_allclose(loc, np.zeros(3, dtype=np.float32), rtol=0.0, atol=1e-8)
     assert scale_value == 1.0
 

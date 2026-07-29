@@ -231,12 +231,14 @@ def main():
         frame = cast(Any, o3d).geometry.TriangleMesh.create_coordinate_frame(size=0.5)
         cast(Any, o3d).visualization.draw_geometries(
             [
-                cast(Any, o3d).geometry.PointCloud(cast(Any, o3d).utility.Vector3dVector(inputs)).paint_uniform_color(
-                    renderer.default_pcd_color
-                ),
+                cast(Any, o3d)
+                .geometry.PointCloud(cast(Any, o3d).utility.Vector3dVector(inputs))
+                .paint_uniform_color(renderer.default_pcd_color),
                 cast(Any, mesh_gt).as_open3d.compute_vertex_normals().paint_uniform_color([0.7, 0.7, 0.7]),
                 cast(Any, mesh_d).as_open3d.compute_vertex_normals().paint_uniform_color([0.9, 0.9, 0.9]),
-                cast(Any, mesh_g_list[0]).as_open3d.compute_vertex_normals().paint_uniform_color(renderer.default_mesh_color),
+                cast(Any, mesh_g_list[0])
+                .as_open3d.compute_vertex_normals()
+                .paint_uniform_color(renderer.default_mesh_color),
                 cast(Any, plane).as_open3d.compute_vertex_normals().paint_uniform_color([0.5, 0.5, 0.5]),
                 frame,
             ]

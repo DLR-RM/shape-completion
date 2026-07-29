@@ -10,7 +10,7 @@ from typing import Any, cast
 import h5py
 import numpy as np
 from PIL import Image
-from rembg import remove
+from rembg import remove  # pyright: ignore[reportMissingImports]
 from scipy.spatial.transform import Rotation as R
 from tqdm import tqdm
 

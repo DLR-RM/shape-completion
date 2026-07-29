@@ -19,7 +19,7 @@ from .transformer import EDMTransformer
 logger = setup_logger(__name__)
 
 try:
-    from pytorch3d.loss import chamfer_distance
+    from pytorch3d.loss import chamfer_distance  # pyright: ignore[reportMissingImports]
 except ImportError:
     logger.warning("The 'PyTorch3D' module is not installed. Chamfer distance loss will not be available.")
     chamfer_distance = None
@@ -359,8 +359,12 @@ class LatentDiffusionModel(MultiEvalMixin, DiffusionModel):
             pos_enc = self.pos_enc(torch.arange(n_queries, dtype=torch.long, device=self.device)).unsqueeze(0)
 
         sampler_result = edm_sampler(
-            self, latents + pos_enc, conditioning,
-            num_steps=num_steps, progress=progress, return_intermediates=return_intermediates,
+            self,
+            latents + pos_enc,
+            conditioning,
+            num_steps=num_steps,
+            progress=progress,
+            return_intermediates=return_intermediates,
         )
 
         if return_intermediates:

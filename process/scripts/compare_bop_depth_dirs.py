@@ -222,7 +222,11 @@ def _write_visualization(
     sensor_valid = np.isfinite(sensor) & (sensor > 0.0)
     pred_valid = np.isfinite(pred) & (pred > 0.0)
     common = sensor_valid & pred_valid
-    depth_max = float(np.percentile(np.concatenate([sensor[sensor_valid], pred[pred_valid]]), 99)) if (sensor_valid.any() or pred_valid.any()) else 1.0
+    depth_max = (
+        float(np.percentile(np.concatenate([sensor[sensor_valid], pred[pred_valid]]), 99))
+        if (sensor_valid.any() or pred_valid.any())
+        else 1.0
+    )
     abs_error = np.zeros(sensor.shape, dtype=np.float32)
     abs_error[common] = np.abs(pred[common] - sensor[common])
     error_max = float(np.percentile(abs_error[common], 95)) if common.any() else 1.0

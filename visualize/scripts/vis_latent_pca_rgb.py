@@ -200,8 +200,8 @@ def _write_token_strip(
     h = max(int(strip_height), 1)
     w = max(int(token_width), 1)
     # One-row strip: token i is a solid rectangle with its RGB color.
-    strip = np.repeat(rgb[np.newaxis, :, :], h, axis=0)              # (h, N, 3)
-    strip = np.repeat(strip, w, axis=1)                              # (h, N*w, 3)
+    strip = np.repeat(rgb[np.newaxis, :, :], h, axis=0)  # (h, N, 3)
+    strip = np.repeat(strip, w, axis=1)  # (h, N*w, 3)
     Image.fromarray(strip, mode="RGB").save(path)
 
 
@@ -465,7 +465,9 @@ def main(cfg: DictConfig) -> None:
                     finite_mask = np.full((latent.shape[0],), bool(finite_mask), dtype=bool)
                 invalid_count = int((~finite_mask).sum())
                 if invalid_count > 0:
-                    logger.warning(f"{name_prefix} {step}: dropping {invalid_count} non-finite latent rows for {obj_name}")
+                    logger.warning(
+                        f"{name_prefix} {step}: dropping {invalid_count} non-finite latent rows for {obj_name}"
+                    )
                 if not finite_mask.any():
                     logger.warning(f"{name_prefix} {step}: no finite latents left for {obj_name}, skipping")
                     continue

@@ -14,7 +14,9 @@ from utils.src import runtime as runtime_module
 logging_module = importlib.import_module("utils.src.logging")
 
 
-def test_suppress_known_optional_dependency_warnings_updates_filters_and_cflags(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_suppress_known_optional_dependency_warnings_updates_filters_and_cflags(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     filter_calls: list[tuple[str, str]] = []
 
     monkeypatch.setattr(warnings, "filterwarnings", lambda action, message: filter_calls.append((action, message)))

@@ -1560,16 +1560,16 @@ def hungarian_matcher(
             tgt_masks = mask_tgt[i].type_as(pred_masks)
 
             if mask_sample is not None and mask_sample > 0:
-                from detectron2.projects.point_rend.point_features import point_sample
+                from detectron2.projects.point_rend import point_features  # pyright: ignore[reportMissingImports]
 
                 point_coords = torch.rand(1, int(mask_sample), 2, device=pred_masks.device)
-                tgt_masks = point_sample(
+                tgt_masks = point_features.point_sample(
                     tgt_masks.unsqueeze(1),
                     point_coords.expand(len(tgt_masks), -1, -1),
                     align_corners=False,
                 ).squeeze(1)
 
-                pred_masks = point_sample(
+                pred_masks = point_features.point_sample(
                     pred_masks.unsqueeze(1),
                     point_coords.expand(len(pred_masks), -1, -1),
                     align_corners=False,
@@ -1838,8 +1838,8 @@ def show_image_with_masks(
 
     plt.figure(figsize=(8, 8))
     try:
-        from detectron2.structures.instances import Instances
-        from detectron2.utils.visualizer import Visualizer
+        from detectron2.structures.instances import Instances  # pyright: ignore[reportMissingImports]
+        from detectron2.utils.visualizer import Visualizer  # pyright: ignore[reportMissingImports]
 
         instances = cast(Any, Instances(image_np.shape[:2]))
         if boxes is not None:

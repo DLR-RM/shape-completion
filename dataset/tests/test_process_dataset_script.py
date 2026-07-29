@@ -68,13 +68,11 @@ def test_merge_splits_writes_combined_object_lists(tmp_path: Path) -> None:
     process_dataset_script.merge_splits(args)
 
     assert (out_dir / "train_objs.txt").read_text() == (
-        f"{class_a}/mesh_a/model.obj\n"
-        f"{class_b}/mesh_d/models/model_normalized.obj\n"
+        f"{class_a}/mesh_a/model.obj\n{class_b}/mesh_d/models/model_normalized.obj\n"
     )
     assert (out_dir / "val_objs.txt").read_text() == f"{class_a}/mesh_b/model.obj\n"
     assert (out_dir / "test_objs.txt").read_text() == (
-        f"{class_a}/mesh_c/model.obj\n"
-        f"{class_b}/mesh_e/models/model_normalized.obj\n"
+        f"{class_a}/mesh_c/model.obj\n{class_b}/mesh_e/models/model_normalized.obj\n"
     )
 
 

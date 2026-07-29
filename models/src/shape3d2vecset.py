@@ -67,7 +67,9 @@ class Shape3D2VecSet(MultiEvalMixin, MultiLossMixin, PredictMixin, Model):
         self.n_queries = query_levels[-1]
         self.query_levels = query_levels
 
-        self.nerf_enc = NeRFEncoding(out_dim=n_embd, padding=padding, num_frequencies=nerf_freqs, max_freq_exp=nerf_freqs - 1)
+        self.nerf_enc = NeRFEncoding(
+            out_dim=n_embd, padding=padding, num_frequencies=nerf_freqs, max_freq_exp=nerf_freqs - 1
+        )
         self.inputs_enc: DecoderBlock | nn.ModuleList
         if len(query_levels) == 1:
             self.inputs_enc = DecoderBlock(n_embd=n_embd, n_head=n_head, no_self_attn=True, activation=activation)

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+msg_file="$1"
+msg=$(head -1 "$msg_file")
+
+if [[ "$msg" =~ ^Merge\  ]] || [[ "$msg" =~ ^Revert\ \" ]]; then
+    exit 0
+fi
+
+pattern='^(feat|fix|docs|refactor|perf|test|chore|ci|revert|style|build)(\([a-z0-9._-]+\))?!?: .+'
+
+if ! [[ "$msg" =~ $pattern ]]; then
+    echo >&2 "ERROR: commit message does not follow Conventional Commits."
+    echo >&2
+    echo >&2 "  Expected: type(scope): description"
+    echo >&2 "  Got:      $msg"
+    echo >&2
+    echo >&2 "  Allowed types: feat fix docs refactor perf test chore ci revert style build"
+    echo >&2 "  Scope is optional: feat(cli): add flag"
+    echo >&2 "  Breaking change:  feat!: remove option"
+    exit 1
+fi

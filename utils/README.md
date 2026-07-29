@@ -14,8 +14,10 @@ Shared utility functions and classes used across all shape-completion submodules
 
 ```python
 from utils import (
-    load_mesh, save_mesh,
-    to_tensor, to_numpy,
+    load_mesh,
+    save_mesh,
+    to_tensor,
+    to_numpy,
     normalize_mesh,
     setup_logger,
     setup_config,
@@ -205,7 +207,7 @@ grid = make_3d_grid(bb_min=-0.5, bb_max=0.5, shape=128)  # (128**3, 3)
 # Voxelize a point cloud
 voxelizer = Voxelizer(resolution=64, bounds=(-0.5, 0.5), method="simple")
 occupancy, voxel_indices = voxelizer(points)  # occupancy: (64, 64, 64)
-centers = voxelizer.grid_points                # (64**3, 3)
+centers = voxelizer.grid_points  # (64**3, 3)
 ```
 
 ### Mesh Operations
@@ -280,8 +282,8 @@ from utils import setup_logger, set_log_level
 
 logger = setup_logger(__name__)
 logger.info("Training started")
-logger.debug_level_1("Detailed debug info")   # Only shown at verbose >= 1
-logger.debug_level_2("Very detailed debug")   # Only shown at verbose >= 2
+logger.debug_level_1("Detailed debug info")  # Only shown at verbose >= 1
+logger.debug_level_2("Very detailed debug")  # Only shown at verbose >= 2
 
 set_log_level("DEBUG")  # Enable all debug output
 ```
@@ -317,17 +319,18 @@ mesh_files = eval_input(Path("data/"), in_format=".obj", sort=True)
 ```python
 from utils import measure_runtime, default_on_exception
 
+
 @measure_runtime
-def train_epoch():
-    ...  # Logs: "train_epoch takes 45.2000s"
+def train_epoch(): ...  # Logs: "train_epoch takes 45.2000s"
+
 
 # Also works as a context manager
 with measure_runtime("data loading"):
     load_data()  # Logs: "data loading took 1.2345s"
 
+
 @default_on_exception(default=[], exceptions=(FileNotFoundError, ValueError))
-def load_data(path):
-    ...  # Returns [] on FileNotFoundError or ValueError
+def load_data(path): ...  # Returns [] on FileNotFoundError or ValueError
 ```
 
 ### Hardware and Distributed Utilities
@@ -383,7 +386,7 @@ from utils import PARTNET_COLORS, PLOTLY_COLORS, DEBUG_LEVEL_1, DEBUG_LEVEL_2
 
 # Color palettes for part segmentation visualization
 colors = PARTNET_COLORS  # (50, 3) ndarray, PartNet segmentation colors
-colors = PLOTLY_COLORS   # Plotly qualitative Pastel + Pastel1 + Pastel2 + Plotly colors
+colors = PLOTLY_COLORS  # Plotly qualitative Pastel + Pastel1 + Pastel2 + Plotly colors
 
 # Custom debug levels (between DEBUG=10 and INFO=20)
 # DEBUG_LEVEL_2 = 11, DEBUG_LEVEL_1 = 12

@@ -1,7 +1,11 @@
 # import time
 import numpy as np
+import pytest
 
-from .. import MISE
+from .. import MISE  # pyright: ignore[reportAttributeAccessIssue]
+
+if MISE is None:
+    pytest.skip("libmise is not installed", allow_module_level=True)
 
 
 def test_mise():

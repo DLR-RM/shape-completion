@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 _ext: Any | None = None
 
 try:
-    import chamfer_ext as _ext
+    import chamfer_ext as _ext  # pyright: ignore[reportMissingImports]
 except (ImportError, ModuleNotFoundError):
     from pathlib import Path
 
@@ -71,7 +71,9 @@ class ChamferDistanceL2(nn.Module):
 
     def forward(self, xyz1: Tensor, xyz2: Tensor) -> tuple[Tensor, Tensor] | tuple[Tensor, Tensor, Tensor, Tensor]:
         if self.return_indices:
-            dist1, dist2, idx1, idx2 = cast(tuple[Tensor, Tensor, Tensor, Tensor], ChamferFunctionWithIndices.apply(xyz1, xyz2))
+            dist1, dist2, idx1, idx2 = cast(
+                tuple[Tensor, Tensor, Tensor, Tensor], ChamferFunctionWithIndices.apply(xyz1, xyz2)
+            )
         else:
             dist1, dist2 = cast(tuple[Tensor, Tensor], ChamferFunction.apply(xyz1, xyz2))
         # if torch.all(dist1 == 0) and torch.all(dist2 == 0):

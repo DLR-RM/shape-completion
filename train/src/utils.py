@@ -30,7 +30,7 @@ logger = setup_logger(__name__)
 
 PYTORCH3D_AVAILABLE = True
 try:
-    from pytorch3d.structures import Pointclouds
+    from pytorch3d.structures import Pointclouds  # pyright: ignore[reportMissingImports]
 except ImportError:
     logger.warning("The 'PyTorch3D' module is not installed. Heterogeneous batching will not be available.")
     PYTORCH3D_AVAILABLE = False

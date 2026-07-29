@@ -19,6 +19,7 @@ You can import and use the `TriangleHash` class as follows:
 
 ```python
 from intersect.triangle_hash import TriangleHash as _TriangleHash
+
 triangle_hash = _TriangleHash()
 ```
 

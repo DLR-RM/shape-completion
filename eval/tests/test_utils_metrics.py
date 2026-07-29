@@ -21,7 +21,9 @@ class _FakeTrimesh:
 
     def __init__(self, vertices: Any = None, faces: Any = None, process: bool = False, validate: bool = False) -> None:
         _ = process, validate
-        self.vertices = np.asarray(vertices if vertices is not None else np.zeros((0, 3), dtype=np.float32), dtype=np.float32)
+        self.vertices = np.asarray(
+            vertices if vertices is not None else np.zeros((0, 3), dtype=np.float32), dtype=np.float32
+        )
         self.faces = np.asarray(faces if faces is not None else np.zeros((0, 3), dtype=np.int32), dtype=np.int32)
         self.face_normals = np.tile(np.array([[0.0, 0.0, 1.0]], dtype=np.float32), (max(len(self.vertices), 2), 1))
         self.transform_calls: list[np.ndarray] = []
@@ -169,7 +171,9 @@ def test_distance_p2p_kdtree_and_invalid_method() -> None:
     assert np.allclose(accuracy, np.array([0.0, 0.1], dtype=np.float64))
     assert np.allclose(completeness, np.array([0.0, 0.1], dtype=np.float64))
     assert accuracy_normals is not None and np.allclose(accuracy_normals, np.array([1.0, 1.0], dtype=np.float32))
-    assert completeness_normals is not None and np.allclose(completeness_normals, np.array([1.0, 1.0], dtype=np.float32))
+    assert completeness_normals is not None and np.allclose(
+        completeness_normals, np.array([1.0, 1.0], dtype=np.float32)
+    )
 
     with pytest.raises(NotImplementedError, match="Method bogus not implemented"):
         script.distance_p2p(points, points_gt, method="bogus")
@@ -316,7 +320,9 @@ def test_eval_mesh_applies_normalization_pose_and_query_metrics(monkeypatch: Any
             "recall": 0.7,
         }
 
-    def _fake_eval_occupancy(probabilities: torch.Tensor, occupancy: torch.Tensor, threshold: float = 0.5) -> dict[str, float]:
+    def _fake_eval_occupancy(
+        probabilities: torch.Tensor, occupancy: torch.Tensor, threshold: float = 0.5
+    ) -> dict[str, float]:
         _ = threshold
         assert torch.equal(probabilities.cpu(), torch.tensor([[1, 0]], dtype=torch.int32))
         assert torch.equal(occupancy.cpu(), torch.tensor([[1.0, 1.0]], dtype=torch.float32))
@@ -343,7 +349,9 @@ def test_eval_mesh_applies_normalization_pose_and_query_metrics(monkeypatch: Any
         normalize=True,
     )
 
-    assert np.allclose(_FakeNormalizeMesh.calls[0]["mesh.vertices"], np.array([[0.0, 0.0, 0.0], [4.0, 0.0, 0.0]], dtype=np.float32))
+    assert np.allclose(
+        _FakeNormalizeMesh.calls[0]["mesh.vertices"], np.array([[0.0, 0.0, 0.0], [4.0, 0.0, 0.0]], dtype=np.float32)
+    )
     assert np.allclose(pointcloud_calls[0][0], np.array([[-0.25, 0.0, 0.0], [0.75, 0.0, 0.0]], dtype=np.float32))
     assert np.allclose(pointcloud_calls[0][1], np.array([[-0.5, 0.0, 0.0], [0.5, 0.0, 0.0]], dtype=np.float32))
     assert np.allclose(check_calls[0], np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float32))
@@ -358,7 +366,9 @@ def test_eval_mesh_applies_normalization_pose_and_query_metrics(monkeypatch: Any
     assert result["recall"] == pytest.approx(0.7)
 
 
-def test_overwrite_results_pickle_and_text_paths(monkeypatch: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_overwrite_results_pickle_and_text_paths(
+    monkeypatch: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     pkl_path = tmp_path / "results.pkl"
     txt_path = tmp_path / "results.txt"
     df = pd.DataFrame({"category name": ["chair", "table"], "score": [1.0, 3.0]})
@@ -491,12 +501,16 @@ def test_render_for_fid_path_views_and_output_dirs(monkeypatch: Any, tmp_path: P
         ),
     )
     monkeypatch.setattr(script.np, "load", lambda path: pose if Path(path) == mesh_path.with_suffix(".npy") else None)
-    monkeypatch.setattr(script, "normalize_mesh", lambda mesh, cube_or_sphere="sphere": normalize_modes.append(cube_or_sphere) or mesh)
+    monkeypatch.setattr(
+        script, "normalize_mesh", lambda mesh, cube_or_sphere="sphere": normalize_modes.append(cube_or_sphere) or mesh
+    )
     monkeypatch.setattr(
         script,
         "get_points",
-        lambda num_points: get_points_calls.append(num_points)
-        or np.array([[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float32),
+        lambda num_points: (
+            get_points_calls.append(num_points)
+            or np.array([[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float32)
+        ),
     )
     monkeypatch.setattr(script, "look_at", lambda point, target: np.diag([1.0, 1.0, 1.0, 1.0]).astype(np.float32))
     monkeypatch.setattr(script, "inv_trafo", lambda value: np.asarray(value, dtype=np.float32))
@@ -547,10 +561,9 @@ def test_render_for_fid_special_views_and_unknown_view(monkeypatch: Any, tmp_pat
     monkeypatch.setattr(
         script,
         "render_mesh",
-        lambda mesh, extrinsic, size=299, light=True, intensity=3.0, renderer=None, camera=None: render_calls.append(
-            np.asarray(extrinsic, dtype=np.float32)
-        )
-        or np.zeros((size, size, 3), dtype=np.uint8),
+        lambda mesh, extrinsic, size=299, light=True, intensity=3.0, renderer=None, camera=None: (
+            render_calls.append(np.asarray(extrinsic, dtype=np.float32)) or np.zeros((size, size, 3), dtype=np.uint8)
+        ),
     )
 
     mesh = _FakeTrimesh([[0.0, 0.0, 0.0], [1.0, 1.0, 0.0]])

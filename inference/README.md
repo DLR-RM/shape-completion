@@ -279,16 +279,16 @@ The `intrinsic` parameter accepts:
 objects, plane_model = remove_plane(
     pcd,
     distance_threshold=0.006,  # RANSAC inlier distance
-    num_iterations=1000,       # RANSAC iterations
-    cluster=True,              # DBSCAN clustering
-    cluster_eps=0.075,         # DBSCAN neighborhood radius
-    cluster_min_points=1000,   # DBSCAN minimum cluster size
-    outlier_neighbors=50,      # Outlier removal neighbor count
-    outlier_radius=0.1,        # Radius outlier removal
-    outlier_std=10.0,          # Statistical outlier removal std ratio
-    crop=True,                 # Include plane points under object hull
-    crop_scale=1.0,            # Hull scale factor
-    crop_up_axis=1,            # Gravity axis (0=x, 1=y, 2=z)
+    num_iterations=1000,  # RANSAC iterations
+    cluster=True,  # DBSCAN clustering
+    cluster_eps=0.075,  # DBSCAN neighborhood radius
+    cluster_min_points=1000,  # DBSCAN minimum cluster size
+    outlier_neighbors=50,  # Outlier removal neighbor count
+    outlier_radius=0.1,  # Radius outlier removal
+    outlier_std=10.0,  # Statistical outlier removal std ratio
+    crop=True,  # Include plane points under object hull
+    crop_scale=1.0,  # Hull scale factor
+    crop_up_axis=1,  # Gravity axis (0=x, 1=y, 2=z)
 )
 # objects: list of Open3D PointCloud (one per cluster, or one if cluster=False)
 # plane_model: np.ndarray [a, b, c, d] plane coefficients (ax + by + cz + d = 0)
@@ -300,17 +300,17 @@ objects, plane_model = remove_plane(
 
 ```python
 input_data, loc, scale = get_input_data_from_point_cloud(
-    objects[0],              # Open3D PointCloud
-    center=True,             # Center to bounding box midpoint
-    scale=True,              # Normalize to unit scale (or pass a float for fixed scale)
-    num_input_points=2048,   # Subsample to N points (None = keep all)
-    crop=0.55,               # Crop to box of this half-width (None = no crop)
-    padding=0.1,             # Padding for voxelization (must match training)
-    voxelize=None,           # Grid resolution for voxelization (used by IFNet)
-    noise_std=None,          # Add Gaussian noise (e.g. 0.005)
-    rotate_z=None,           # Rotate around z-axis (radians)
-    offset_y=0,              # Y offset before centering (for on-plane placement)
-    transform=None,          # Additional rigid transform
+    objects[0],  # Open3D PointCloud
+    center=True,  # Center to bounding box midpoint
+    scale=True,  # Normalize to unit scale (or pass a float for fixed scale)
+    num_input_points=2048,  # Subsample to N points (None = keep all)
+    crop=0.55,  # Crop to box of this half-width (None = no crop)
+    padding=0.1,  # Padding for voxelization (must match training)
+    voxelize=None,  # Grid resolution for voxelization (used by IFNet)
+    noise_std=None,  # Add Gaussian noise (e.g. 0.005)
+    rotate_z=None,  # Rotate around z-axis (radians)
+    offset_y=0,  # Y offset before centering (for on-plane placement)
+    transform=None,  # Additional rigid transform
 )
 # input_data: np.ndarray (N, 3) float32 -- normalized points
 # loc: np.ndarray (3,) float32 -- center offset applied
@@ -343,7 +343,10 @@ model = load_model(args)
 # Load and preprocess point cloud
 pcd = o3d.io.read_point_cloud("partial_object.ply")
 input_data, loc, scale = get_input_data_from_point_cloud(
-    pcd, center=True, scale=True, padding=0.1,
+    pcd,
+    center=True,
+    scale=True,
+    padding=0.1,
 )
 
 # Run inference

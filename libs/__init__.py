@@ -71,14 +71,14 @@ except (ImportError, ModuleNotFoundError):
 
 try:
     logging.debug("Importing from libmise")
-    from .libmise import MISE
+    from .libmise import MISE  # pyright: ignore[reportAttributeAccessIssue]
 except (ImportError, ModuleNotFoundError):
     logging.warning("Could not import from libmise. 'MISE' will not be available.")
     MISE = None
 
 try:
     logging.debug("Importing from libfusion")
-    from .libfusion import PyViews, tsdf_fusion
+    from .libfusion import PyViews, tsdf_fusion  # pyright: ignore[reportAttributeAccessIssue]
 except (ImportError, ModuleNotFoundError):
     logging.warning("Could not import from libfusion. 'PyViews' and 'tsdf_fusion' will not be available.")
     PyViews = None

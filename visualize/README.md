@@ -75,8 +75,8 @@ visualize/
 from visualize.src.visualizer import Visualizer
 
 vis = Visualizer(resolution=128, method="pyrender", width=512, height=512)
-vis.generator = model          # Internally creates a Generator
-mesh = vis.get_mesh(item)      # generate_mesh wrapper
+vis.generator = model  # Internally creates a Generator
+mesh = vis.get_mesh(item)  # generate_mesh wrapper
 image = vis.get_image([mesh])  # render wrapper
 vis.save(path, mesh=mesh, image=image)
 ```
@@ -89,21 +89,21 @@ The `Generator` class extracts meshes from implicit function models using Marchi
 
 ```python
 Generator(
-    model,                          # Trained implicit model (models.Model subclass)
-    points_batch_size=None,         # Query batch size; defaults to full grid
-    threshold=0.5,                  # Occupancy threshold (or SDF iso-level)
-    extraction_class=1,             # Class label to extract (for multi-class)
-    refinement_steps=0,             # Gradient-based surface refinement iterations
-    resolution=128,                 # Grid resolution per axis
-    upsampling_steps=0,             # MISE upsampling (0=plain Marching Cubes)
-    estimate_normals=False,         # Compute vertex normals via gradient
-    predict_colors=False,           # Query model for per-vertex colors
-    padding=0.1,                    # Bounding box padding
-    scale_factor=1.0,               # Bounding box scale
-    simplify=None,                  # Mesh simplification (bool, int, or float)
-    use_skimage=False,              # Use skimage instead of PyMCubes
-    sdf=False,                      # Model outputs SDF (not occupancy logits)
-    bounds=(-0.5, 0.5),             # Spatial bounds; scalar pair or per-axis tuple
+    model,  # Trained implicit model (models.Model subclass)
+    points_batch_size=None,  # Query batch size; defaults to full grid
+    threshold=0.5,  # Occupancy threshold (or SDF iso-level)
+    extraction_class=1,  # Class label to extract (for multi-class)
+    refinement_steps=0,  # Gradient-based surface refinement iterations
+    resolution=128,  # Grid resolution per axis
+    upsampling_steps=0,  # MISE upsampling (0=plain Marching Cubes)
+    estimate_normals=False,  # Compute vertex normals via gradient
+    predict_colors=False,  # Query model for per-vertex colors
+    padding=0.1,  # Bounding box padding
+    scale_factor=1.0,  # Bounding box scale
+    simplify=None,  # Mesh simplification (bool, int, or float)
+    use_skimage=False,  # Use skimage instead of PyMCubes
+    sdf=False,  # Model outputs SDF (not occupancy logits)
+    bounds=(-0.5, 0.5),  # Spatial bounds; scalar pair or per-axis tuple
 )
 ```
 
@@ -133,7 +133,7 @@ Iteratively moves mesh vertices toward the true iso-surface using RMSprop on the
 generator = Generator(
     model,
     resolution=128,
-    refinement_steps=10,     # 10 iterations of gradient-based refinement
+    refinement_steps=10,  # 10 iterations of gradient-based refinement
 )
 ```
 
@@ -172,9 +172,9 @@ For models with a `predict()` method and no MISE/refinement, the Generator skips
 ### Mesh Simplification
 
 ```python
-generator = Generator(model, resolution=256, simplify=10000)   # target 10k faces
-generator = Generator(model, resolution=256, simplify=0.1)     # target 10% of faces
-generator = Generator(model, resolution=256, simplify=True)    # target 10% (default)
+generator = Generator(model, resolution=256, simplify=10000)  # target 10k faces
+generator = Generator(model, resolution=256, simplify=0.1)  # target 10% of faces
+generator = Generator(model, resolution=256, simplify=True)  # target 10% (default)
 ```
 
 ## Renderer
@@ -200,19 +200,19 @@ When `method="auto"`, the Renderer selects a backend based on requested features
 
 ```python
 Renderer(
-    method="auto",                  # "auto", "pyrender", "open3d", "pytorch3d",
-                                    # "blender", "cycles", "eevee"
+    method="auto",  # "auto", "pyrender", "open3d", "pytorch3d",
+    # "blender", "cycles", "eevee"
     width=512,
     height=512,
-    render_color=True,              # Produce RGB image
-    render_depth=False,             # Produce depth map
-    render_normal=False,            # Produce normal map
-    offscreen=True,                 # Headless rendering (EGL for pyrender/open3d)
-    differentiable=False,           # Enable gradient flow (pytorch3d only)
-    raytracing=False,               # Path tracing (blender/cycles only)
-    file_format="PNG",              # "PNG", "JPEG", or "EXR"
-    transparent_background=False,   # Alpha channel (PNG only)
-    show=False,                     # Display result with matplotlib
+    render_color=True,  # Produce RGB image
+    render_depth=False,  # Produce depth map
+    render_normal=False,  # Produce normal map
+    offscreen=True,  # Headless rendering (EGL for pyrender/open3d)
+    differentiable=False,  # Enable gradient flow (pytorch3d only)
+    raytracing=False,  # Path tracing (blender/cycles only)
+    file_format="PNG",  # "PNG", "JPEG", or "EXR"
+    transparent_background=False,  # Alpha channel (PNG only)
+    show=False,  # Display result with matplotlib
 )
 ```
 
@@ -222,15 +222,15 @@ The Renderer is callable. Both `renderer.render(...)` and `renderer(...)` work i
 
 ```python
 result = renderer(
-    vertices=mesh.vertices,               # (N, 3) or list of arrays
-    faces=mesh.faces,                      # (F, 3) or list; None for point clouds
-    colors=np.array([0.3, 0.6, 0.7]),     # Per-mesh (3,), per-vertex (N, 3), or list
-    intrinsic=K,                           # 3x3 camera matrix (optional, has default)
-    extrinsic=pose,                        # 4x4 OpenGL camera-to-world (optional)
+    vertices=mesh.vertices,  # (N, 3) or list of arrays
+    faces=mesh.faces,  # (F, 3) or list; None for point clouds
+    colors=np.array([0.3, 0.6, 0.7]),  # Per-mesh (3,), per-vertex (N, 3), or list
+    intrinsic=K,  # 3x3 camera matrix (optional, has default)
+    extrinsic=pose,  # 4x4 OpenGL camera-to-world (optional)
 )
-color_image = result["color"]              # H x W x 3 uint8 (or H x W x 4 if transparent)
-depth_map = result.get("depth")            # H x W float32
-normal_map = result.get("normal")          # H x W x 3 float32
+color_image = result["color"]  # H x W x 3 uint8 (or H x W x 4 if transparent)
+depth_map = result.get("depth")  # H x W float32
+normal_map = result.get("normal")  # H x W x 3 float32
 ```
 
 Camera conventions: extrinsics are expected in **OpenGL convention** (Y-up, -Z forward). The Renderer converts to OpenCV internally for backends that need it (Open3D, PyTorch3D).
@@ -242,10 +242,12 @@ Pass lists to render multiple objects in a single scene:
 ```python
 result = renderer(
     vertices=[mesh.vertices, pcd.vertices, plane.vertices],
-    faces=[mesh.faces, None, plane.faces],          # None = point cloud
-    colors=[np.array([0.3, 0.6, 0.7]),              # mesh color
-            np.array([1.0, 0.5, 0.4]),              # point cloud color
-            "shadow"],                                # Blender shadow catcher
+    faces=[mesh.faces, None, plane.faces],  # None = point cloud
+    colors=[
+        np.array([0.3, 0.6, 0.7]),  # mesh color
+        np.array([1.0, 0.5, 0.4]),  # point cloud color
+        "shadow",
+    ],  # Blender shadow catcher
 )
 ```
 
@@ -435,7 +437,7 @@ meshes = []
 for batch in dataloader:
     inputs = batch["inputs"].cuda()
     for i in range(inputs.shape[0]):
-        mesh = generator.generate_mesh({"inputs": inputs[i:i+1]})
+        mesh = generator.generate_mesh({"inputs": inputs[i : i + 1]})
         meshes.append(mesh)
 ```
 
@@ -462,11 +464,7 @@ from visualize import Renderer
 
 renderer = Renderer(method="pyrender")
 
-intrinsic = np.array([
-    [500, 0, 256],
-    [0, 500, 256],
-    [0, 0, 1]
-])
+intrinsic = np.array([[500, 0, 256], [0, 500, 256], [0, 0, 1]])
 pose = np.eye(4)
 pose[:3, 3] = [0, 0, 2]  # 2m away, OpenGL convention
 
@@ -482,7 +480,7 @@ generator = Generator(model, resolution=128, padding=0.1)
 instance_grids = generator.generate_grid_per_instance(
     {"inputs": inputs},
     threshold=0.5,
-    return_meta=True,   # Returns dict with grid, voxel_size, center, instance_idx
+    return_meta=True,  # Returns dict with grid, voxel_size, center, instance_idx
 )
 
 # Extract meshes with per-instance colors

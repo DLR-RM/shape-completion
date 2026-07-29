@@ -7,6 +7,7 @@ Standalone ``mathutils`` (PyPI) is used directly for geometry tests.
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import math
 import struct
 import sys
@@ -14,9 +15,13 @@ import types
 from pathlib import Path
 from typing import Any, cast
 
-import mathutils
 import numpy as np
 import pytest
+
+if importlib.util.find_spec("mathutils") is None:
+    pytest.skip("mathutils is not installed", allow_module_level=True)
+
+import mathutils  # pyright: ignore[reportMissingImports]
 
 # ---------------------------------------------------------------------------
 # Fixture: import blender_load with lightweight bpy/bmesh stubs

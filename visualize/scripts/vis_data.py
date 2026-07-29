@@ -55,7 +55,9 @@ def main(cfg: DictConfig):
 
         generator = torch.Generator().manual_seed(cfg.misc.seed)
         sampler = (
-            WeightedRandomSampler(weights=dataset_any.category_weights, num_samples=len(dataset_any), generator=generator)
+            WeightedRandomSampler(
+                weights=dataset_any.category_weights, num_samples=len(dataset_any), generator=generator
+            )
             if cfg.load.weighted
             else None
         )

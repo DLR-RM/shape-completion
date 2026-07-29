@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 _ext: Any | None = None
 
 try:
-    import emd_ext as _ext
+    import emd_ext as _ext  # pyright: ignore[reportMissingImports]
 except (ImportError, ModuleNotFoundError):
     from pathlib import Path
 

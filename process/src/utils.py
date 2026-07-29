@@ -249,7 +249,7 @@ def modify_simplify(
 def apply_meshlab_filters(
     vertices: np.ndarray, faces: np.ndarray, script_paths: list[Path]
 ) -> tuple[np.ndarray, np.ndarray]:
-    import pymeshlab
+    import pymeshlab  # pyright: ignore[reportMissingImports]
 
     pymeshlab_mod = cast(Any, pymeshlab)
     ms = pymeshlab_mod.MeshSet()

@@ -224,6 +224,7 @@ Use the built-in scripts for fast PR checks vs broader nightly checks:
 ```
 
 Quality policy and coverage interpretation live in [docs/quality.md](docs/quality.md). Supported vs experimental workflow status lives in [docs/status.md](docs/status.md).
+GitHub Actions runs the PR lane on pull requests and pushes to `main`. `./scripts/bootstrap_dev.sh` activates the tracked commit-message and pre-push hooks.
 
 ## Usage
 

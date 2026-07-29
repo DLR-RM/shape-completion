@@ -116,10 +116,10 @@ class ResNet50FPN(nn.Module):
         pretrained: str = "coco",
     ):
         super().__init__()
-        from detectron2 import model_zoo
-        from detectron2.checkpoint import DetectionCheckpointer
-        from detectron2.config import get_cfg
-        from detectron2.modeling import build_backbone
+        from detectron2 import model_zoo  # pyright: ignore[reportMissingImports]
+        from detectron2.checkpoint import DetectionCheckpointer  # pyright: ignore[reportMissingImports]
+        from detectron2.config import get_cfg  # pyright: ignore[reportMissingImports]
+        from detectron2.modeling import build_backbone  # pyright: ignore[reportMissingImports]
 
         cfg = get_cfg()
         cfg.merge_from_file(model_zoo.get_config_file(config))

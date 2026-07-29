@@ -1,6 +1,9 @@
+import pytest
 import torch
 
 from ..src.if_net import IFNet
+
+pytestmark = pytest.mark.gpu
 
 
 class TestIFNet:

@@ -56,11 +56,11 @@ class PVCNN2Base(nn.Module):
         mlp_layers = cast(
             tuple[list[nn.Module], int],
             create_mlp_components(
-            in_channels=channels_fp_features,
-            out_channels=[128, dropout, num_classes],
-            classifier=True,
-            dim=2,
-            width_multiplier=width_multiplier,
+                in_channels=channels_fp_features,
+                out_channels=[128, dropout, num_classes],
+                classifier=True,
+                dim=2,
+                width_multiplier=width_multiplier,
             ),
         )
         self.classifier = nn.Sequential(*mlp_layers[0])

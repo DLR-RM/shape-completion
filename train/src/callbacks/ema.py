@@ -154,8 +154,10 @@ class EMACallback(pl.Callback):
 
 @torch.no_grad()
 def ema_update(ema_model_tuple, current_model_tuple, decay):
-    torch._foreach_mul_(ema_model_tuple, decay)
-    torch._foreach_add_(ema_model_tuple, current_model_tuple, alpha=(1.0 - decay))
+    torch._foreach_mul_(ema_model_tuple, decay)  # pyright: ignore[reportPrivateImportUsage]
+    torch._foreach_add_(  # pyright: ignore[reportPrivateImportUsage]
+        ema_model_tuple, current_model_tuple, alpha=(1.0 - decay)
+    )
 
 
 def run_ema_update_cpu(ema_model_tuple, current_model_tuple, decay, pre_sync_stream=None):

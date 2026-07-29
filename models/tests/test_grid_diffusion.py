@@ -100,9 +100,7 @@ def test_get_inputs_handles_2d_and_3d_and_rejects_unknown_ndim() -> None:
         (3, 1, (1, 1, 4096)),
     ],
 )
-def test_forward_initializes_samples_when_missing(
-    ndim: int, channels: int, expected_shape: tuple[int, ...]
-) -> None:
+def test_forward_initializes_samples_when_missing(ndim: int, channels: int, expected_shape: tuple[int, ...]) -> None:
     model, scheduler = _make_model(ndim=ndim, channels=channels)
     denoise_fn = cast(_FakeDenoiseFn, model.denoise_fn)
 
@@ -176,7 +174,9 @@ def test_evaluate_delegates_to_multi_eval_for_3d(monkeypatch: pytest.MonkeyPatch
     model, _ = _make_model(ndim=3)
     super_calls: list[dict[str, Any]] = []
 
-    def _fake_super_evaluate(self: Any, data: dict[str, Tensor], prefix: str = "val/", **kwargs: Any) -> dict[str, float]:
+    def _fake_super_evaluate(
+        self: Any, data: dict[str, Tensor], prefix: str = "val/", **kwargs: Any
+    ) -> dict[str, float]:
         super_calls.append({"data": dict(data), "prefix": prefix, "kwargs": kwargs})
         return {f"{prefix}delegated": 1.0}
 

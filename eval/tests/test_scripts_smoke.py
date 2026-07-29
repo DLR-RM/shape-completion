@@ -4,6 +4,7 @@ import argparse
 from collections import defaultdict
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, ClassVar, cast
 
 import numpy as np
@@ -477,7 +478,11 @@ def test_gen_eval_main_smoke(monkeypatch: Any, tmp_path: Path) -> None:
     monkeypatch.setattr(gen_eval_script, "resolve_save_dir", lambda *_args, **_kwargs: tmp_path)
     monkeypatch.setattr(gen_eval_script, "resolve_path", lambda path: Path(path))
     monkeypatch.setattr(gen_eval_script, "get_num_workers", lambda *_args, **_kwargs: 0)
-    monkeypatch.setattr(gen_eval_script.fid, "test_stats_exists", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        gen_eval_script,
+        "fid",
+        SimpleNamespace(test_stats_exists=lambda *_args, **_kwargs: False),
+    )
 
     gen_eval_script.main.__wrapped__(_gen_eval_cfg(tmp_path))
 

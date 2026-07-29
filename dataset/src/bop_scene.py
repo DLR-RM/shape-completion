@@ -6,7 +6,7 @@ import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import numpy as np
 from easy_o3d.utils import convert_depth_image_to_point_cloud
@@ -243,11 +243,17 @@ class BOPSceneEval(GraspNetEval):
         if self.filter_background is not None and self.background_plane_threshold is not None:
             raise ValueError("Use either filter_background or background_plane_threshold, not both.")
         if self.statistical_outlier_neighbors < 1:
-            raise ValueError(f"statistical_outlier_neighbors must be positive, got {self.statistical_outlier_neighbors}")
+            raise ValueError(
+                f"statistical_outlier_neighbors must be positive, got {self.statistical_outlier_neighbors}"
+            )
         if self.statistical_outlier_std_ratio <= 0.0:
-            raise ValueError(f"statistical_outlier_std_ratio must be positive, got {self.statistical_outlier_std_ratio}")
+            raise ValueError(
+                f"statistical_outlier_std_ratio must be positive, got {self.statistical_outlier_std_ratio}"
+            )
         if self.statistical_outlier_min_points is not None and self.statistical_outlier_min_points < 1:
-            raise ValueError(f"statistical_outlier_min_points must be positive, got {self.statistical_outlier_min_points}")
+            raise ValueError(
+                f"statistical_outlier_min_points must be positive, got {self.statistical_outlier_min_points}"
+            )
         if self.dbscan_eps <= 0.0:
             raise ValueError(f"dbscan_eps must be positive, got {self.dbscan_eps}")
         if self.dbscan_min_points < 1:
@@ -525,6 +531,7 @@ class BOPSceneEval(GraspNetEval):
         pts = item["inputs"]
         lbl = item["inputs.labels"]
         if self.background_plane_threshold is not None:
+            background_plane_threshold = float(self.background_plane_threshold)
             background = pts[lbl == 0]
             item["inputs.background_plane_status"] = "not_enough_background"
             item["inputs.background_plane_num_background"] = len(background)
@@ -535,7 +542,7 @@ class BOPSceneEval(GraspNetEval):
                 return
             plane = _fit_plane_ransac(
                 background,
-                float(self.background_plane_threshold),
+                background_plane_threshold,
                 num_iterations=self.background_plane_iterations,
                 max_fit_points=self.background_plane_max_fit_points,
                 min_inliers=self.background_plane_min_inliers,
@@ -545,12 +552,14 @@ class BOPSceneEval(GraspNetEval):
                 return
             item["inputs.background_plane"] = plane
             distances = _plane_distances(pts, plane)
-            keep_mask = (lbl != 0) | (distances <= float(self.background_plane_threshold))
+            keep_mask = (lbl != 0) | (distances <= background_plane_threshold)
             background_distances = distances[lbl == 0]
-            background_keep = background_distances <= float(self.background_plane_threshold)
+            background_keep = background_distances <= background_plane_threshold
             item["inputs.background_plane_status"] = "ok"
             item["inputs.background_plane_num_background_kept"] = int(background_keep.sum())
-            item["inputs.background_plane_inlier_ratio"] = float(background_keep.mean()) if len(background_keep) else 0.0
+            item["inputs.background_plane_inlier_ratio"] = (
+                float(background_keep.mean()) if len(background_keep) else 0.0
+            )
             item["inputs.background_plane_mean_distance"] = (
                 float(background_distances[background_keep].mean()) if np.any(background_keep) else np.nan
             )
@@ -559,7 +568,10 @@ class BOPSceneEval(GraspNetEval):
             self._apply_input_point_keep_mask(item, keep_mask)
             return
 
-        z_thresh = float(self.filter_background)
+        filter_background = self.filter_background
+        if filter_background is None:
+            return
+        z_thresh = float(filter_background)
         keep_mask = ~((lbl == 0) & ((pts[:, 2] > z_thresh) | (pts[:, 2] < -z_thresh)))
         self._apply_input_point_keep_mask(item, keep_mask)
 
@@ -616,7 +628,7 @@ class BOPSceneEval(GraspNetEval):
         pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
         pcd.colors = o3d.utility.Vector3dVector(colors)
         frame = o3d.geometry.TriangleMesh().create_coordinate_frame(size=0.1)
-        o3d.visualization.draw_geometries([pcd, frame], window_name="BOP background plane filter")
+        cast(Any, o3d).visualization.draw_geometries([pcd, frame], window_name="BOP background plane filter")
 
     def _remove_statistical_outlier_points(self, item: dict[str, Any]) -> None:
         if (
@@ -674,7 +686,7 @@ class BOPSceneEval(GraspNetEval):
         pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
         pcd.colors = o3d.utility.Vector3dVector(colors)
         frame = o3d.geometry.TriangleMesh().create_coordinate_frame(size=0.1)
-        o3d.visualization.draw_geometries([pcd, frame], window_name="BOP statistical outlier filter")
+        cast(Any, o3d).visualization.draw_geometries([pcd, frame], window_name="BOP statistical outlier filter")
 
     @staticmethod
     def _statistical_inlier_indices(points: np.ndarray, *, nb_neighbors: int, std_ratio: float) -> np.ndarray:
@@ -783,7 +795,7 @@ class BOPSceneEval(GraspNetEval):
         pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
         pcd.colors = o3d.utility.Vector3dVector(colors)
         frame = o3d.geometry.TriangleMesh().create_coordinate_frame(size=0.1)
-        o3d.visualization.draw_geometries([pcd, frame], window_name="BOP DBSCAN component filter")
+        cast(Any, o3d).visualization.draw_geometries([pcd, frame], window_name="BOP DBSCAN component filter")
 
     def _populate_meshes(self, item: dict[str, Any], meta: dict[str, Any]) -> None:
         gt_indices = item.get("inputs.gt_indices_2d")
@@ -882,7 +894,9 @@ class BOPSceneEval(GraspNetEval):
         return {obj_id: indices[0] for obj_id, indices in BOPSceneEval._indices_by_id(ids).items()}
 
     @staticmethod
-    def _obj_ids_for_gt_indices(gt_indices: np.ndarray, obj_ids: np.ndarray, selected_gt_indices: np.ndarray) -> np.ndarray:
+    def _obj_ids_for_gt_indices(
+        gt_indices: np.ndarray, obj_ids: np.ndarray, selected_gt_indices: np.ndarray
+    ) -> np.ndarray:
         if len(selected_gt_indices) == 0 or len(gt_indices) != len(obj_ids):
             return np.zeros((0,), dtype=np.int32)
         mask = np.isin(gt_indices, selected_gt_indices)

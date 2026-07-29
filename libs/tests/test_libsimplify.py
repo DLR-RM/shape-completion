@@ -1,6 +1,10 @@
+import pytest
 import trimesh
 
 from .. import simplify_mesh
+
+if simplify_mesh is None:
+    pytest.skip("libsimplify is not installed", allow_module_level=True)
 
 
 def test_simplify_mesh():

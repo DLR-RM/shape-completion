@@ -258,9 +258,7 @@ def test_get_test_dataset_project_branch_uses_point_cloud_normalization(monkeypa
     ]
 
 
-def test_get_test_dataset_camera_branch_projects_depth_and_updates_intrinsics(
-    monkeypatch: Any, tmp_path: Path
-) -> None:
+def test_get_test_dataset_camera_branch_projects_depth_and_updates_intrinsics(monkeypatch: Any, tmp_path: Path) -> None:
     sample_path = tmp_path / "frame.png"
     sample_path.touch()
     extrinsic_path = tmp_path / "camera.npy"
@@ -379,7 +377,9 @@ def test_get_test_dataset_depth_file_preserves_loader_extrinsic(monkeypatch: Any
 
     monkeypatch.setattr(script, "resolve_path", lambda value: Path(str(value)))
 
-    def _fake_get_point_cloud(path: Path, extrinsic: np.ndarray | None = None) -> tuple[_FakePointCloud, np.ndarray, np.ndarray]:
+    def _fake_get_point_cloud(
+        path: Path, extrinsic: np.ndarray | None = None
+    ) -> tuple[_FakePointCloud, np.ndarray, np.ndarray]:
         assert extrinsic is not None
         np.testing.assert_allclose(extrinsic, original_extrinsic)
         return fake_pcd, intrinsic, loaded_extrinsic
@@ -387,7 +387,9 @@ def test_get_test_dataset_depth_file_preserves_loader_extrinsic(monkeypatch: Any
     monkeypatch.setattr(inference_module, "get_point_cloud", _fake_get_point_cloud)
     monkeypatch.setattr(inference_module, "remove_plane", lambda pcd: ([pcd], np.array([0.0, 1.0, 0.0, 0.0])))
     monkeypatch.setattr(script, "apply_trafo", lambda points, matrix: apply_calls.append(matrix.copy()) or points)
-    monkeypatch.setattr(script, "points_to_depth", lambda points, matrix, width, height: np.array([[7.0]], dtype=np.float32))
+    monkeypatch.setattr(
+        script, "points_to_depth", lambda points, matrix, width, height: np.array([[7.0]], dtype=np.float32)
+    )
 
     dataset = cast(Any, script.get_test_dataset(cfg))
     assert dataset is not None

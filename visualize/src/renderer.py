@@ -419,7 +419,9 @@ class Renderer:
         if normal and "normal" in result:
             normal_data = result["normal"]
             plt.imshow(
-                stack_images(cast(list[np.ndarray | Any], normal_data)) if isinstance(normal_data, list) else normal_data
+                stack_images(cast(list[np.ndarray | Any], normal_data))
+                if isinstance(normal_data, list)
+                else normal_data
             )
             plt.axis("off")
             plt.show()
@@ -567,7 +569,7 @@ class Renderer:
         if isinstance(extrinsic, np.ndarray):
             add_camera_pose(inv_trafo(extrinsic))
         else:
-            for ext in (extrinsic or []):
+            for ext in extrinsic or []:
                 add_camera_pose(inv_trafo(ext))
 
         if self.render_color:
@@ -713,8 +715,10 @@ class Renderer:
                     if len(v) > 2048:
                         v = v[np.random.randint(0, len(v), 2048)]
                     for _v, _c in zip(v, c, strict=False):
-                        point = cast(Any, o3d).geometry.TriangleMesh().create_sphere(
-                            radius=0.0015 * point_size, resolution=10
+                        point = (
+                            cast(Any, o3d)
+                            .geometry.TriangleMesh()
+                            .create_sphere(radius=0.0015 * point_size, resolution=10)
                         )
                         point.translate(_v)
                         point.paint_uniform_color(_c)
@@ -875,8 +879,10 @@ class Renderer:
                     if len(v) > 2048:
                         v = v[np.random.randint(0, len(v), 2048)]
                     for _v, _c in zip(v, c, strict=False):
-                        sphere = cast(Any, o3d).geometry.TriangleMesh().create_sphere(
-                            radius=0.0015 * point_size, resolution=10
+                        sphere = (
+                            cast(Any, o3d)
+                            .geometry.TriangleMesh()
+                            .create_sphere(radius=0.0015 * point_size, resolution=10)
                         )
                         sphere.translate(_v)
                         sphere.compute_vertex_normals()

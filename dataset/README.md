@@ -77,6 +77,7 @@ Fields define how to load specific data types from disk. All fields inherit from
 ```python
 from dataset.src.fields import Field
 
+
 class Field(ABC):
     def __init__(self, cachable: bool = True, cache: bool = False):
         """
@@ -147,6 +148,7 @@ data:
 ```python
 from dataset.src.fields import Field
 
+
 class MyField(Field):
     def __init__(self, file_name: str, cache: bool = False):
         super().__init__(cachable=True, cache=cache)
@@ -166,6 +168,7 @@ Transforms augment and process data. All transforms inherit from the `Transform`
 
 ```python
 from dataset.src.transforms import Transform
+
 
 class Transform(ABC):
     def __init__(
@@ -324,13 +327,10 @@ from dataset.src.transforms import (
 transforms = [
     # Subsample input point cloud to 2048 points
     SubsamplePointcloud(apply_to="inputs", num_samples=2048),
-
     # Add noise only during training
     AddGaussianNoise(apply_to="inputs", std=0.01),
-
     # Random rotation around Z axis
     Rotate(apply_to=["inputs", "points"], axes="z", angles=360),
-
     # Normalize to unit sphere
     Normalize(apply_to=["inputs", "points", "mesh.vertices"]),
 ]
@@ -373,7 +373,7 @@ from dataset.src.shapenet import ShapeNet
 
 dataset = ShapeNet(
     root="/path/to/shapenet",
-    split="train",              # train | val | test
+    split="train",  # train | val | test
     categories=["chair", "table"],  # or None for all
     fields={"inputs": field, "points": field},
     transforms=transforms,
@@ -389,7 +389,7 @@ from dataset.src.bop import BOP
 
 dataset = BOP(
     root="/path/to/bop",
-    dataset="ycbv",            # ycbv | lm | tless | itodd | ...
+    dataset="ycbv",  # ycbv | lm | tless | itodd | ...
     split="train_pbr",
     fields=fields,
 )
@@ -417,7 +417,7 @@ from dataset.src.tabletop import TableTop
 dataset = TableTop(
     root="/path/to/tabletop",
     split="train",
-    scene_type="single",       # single | multi | clutter
+    scene_type="single",  # single | multi | clutter
 )
 ```
 
@@ -441,7 +441,7 @@ from dataset.src.modelnet import ModelNet
 
 dataset = ModelNet(
     root="/path/to/modelnet",
-    version=40,                # 10 | 40
+    version=40,  # 10 | 40
     split="train",
 )
 ```
@@ -608,6 +608,7 @@ Create `dataset/src/mydataset.py`:
 from pathlib import Path
 from torch.utils.data import Dataset
 from .transforms import Transform, apply_transforms
+
 
 class MyDataset(Dataset):
     def __init__(

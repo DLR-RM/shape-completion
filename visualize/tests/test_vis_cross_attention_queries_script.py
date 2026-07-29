@@ -199,7 +199,9 @@ def test_main_smoke_writes_outputs(monkeypatch: Any, tmp_path: Path) -> None:
     fake_encoder = _FakeEncoder()
     attention_inputs: list[torch.Tensor] = []
 
-    def fake_compute_attention_weights(ae: Any, inputs: torch.Tensor) -> tuple[tuple[np.ndarray, np.ndarray, np.ndarray], np.ndarray, np.ndarray, np.ndarray]:
+    def fake_compute_attention_weights(
+        ae: Any, inputs: torch.Tensor
+    ) -> tuple[tuple[np.ndarray, np.ndarray, np.ndarray], np.ndarray, np.ndarray, np.ndarray]:
         assert ae is fake_encoder
         attention_inputs.append(inputs.detach().cpu().clone())
         input_points = inputs.squeeze(0).detach().cpu().numpy().astype(np.float32)

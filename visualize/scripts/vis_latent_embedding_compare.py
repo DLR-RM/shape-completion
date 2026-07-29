@@ -211,7 +211,11 @@ def main(cfg: DictConfig) -> None:
     vqvae_weights = str(vis_cfg.get("vqvae_weights", "cvpr_2025_vae/pcd_vqvae_16k_long/model_best.pt"))
 
     output_dir_cfg = vis_cfg.get("output_dir", None)
-    output_dir = Path(str(output_dir_cfg)).expanduser() if output_dir_cfg else (resolve_save_dir(cfg) / "latent_embedding_compare")
+    output_dir = (
+        Path(str(output_dir_cfg)).expanduser()
+        if output_dir_cfg
+        else (resolve_save_dir(cfg) / "latent_embedding_compare")
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

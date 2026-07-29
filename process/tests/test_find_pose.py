@@ -4,6 +4,8 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation as R
 
+pytest.importorskip("pybullet")
+
 from ..scripts.generate_physics_poses import filter_matrices, show_types, simplify_types
 
 

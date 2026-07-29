@@ -3,7 +3,7 @@ import torch
 
 
 def test_chamfer():
-    from pytorch3d.loss import chamfer_distance
+    chamfer_distance = pytest.importorskip("pytorch3d.loss").chamfer_distance
 
     from libs import ChamferDistanceL2
 

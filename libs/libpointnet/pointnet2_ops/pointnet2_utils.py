@@ -10,7 +10,7 @@ from torch.autograd import Function
 logger = logging.getLogger(__name__)
 
 try:
-    import pointnet_ext as _ext
+    import pointnet_ext as _ext  # pyright: ignore[reportMissingImports]
 except (ImportError, ModuleNotFoundError):
     from torch.utils.cpp_extension import load
 

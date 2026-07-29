@@ -479,13 +479,13 @@ The `process` package exports these functions (via `process/__init__.py`):
 
 ```python
 from process import (
-    apply_meshlab_filters,   # Apply MeshLab XML filter scripts
-    get_points,              # Get 3D query points
-    get_views,               # Generate camera viewpoints on sphere
-    modify_simplify,         # Modify MeshLab simplify script parameters
-    normalize_mesh,          # Normalize mesh to unit cube
-    normalize_pointcloud,    # Normalize point cloud to unit cube/sphere
-    sample_pointcloud,       # Sample surface points from trimesh
+    apply_meshlab_filters,  # Apply MeshLab XML filter scripts
+    get_points,  # Get 3D query points
+    get_views,  # Generate camera viewpoints on sphere
+    modify_simplify,  # Modify MeshLab simplify script parameters
+    normalize_mesh,  # Normalize mesh to unit cube
+    normalize_pointcloud,  # Normalize point cloud to unit cube/sphere
+    sample_pointcloud,  # Sample surface points from trimesh
 )
 ```
 

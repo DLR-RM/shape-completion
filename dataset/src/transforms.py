@@ -101,8 +101,12 @@ def _to_numpy_array(value: Any) -> np.ndarray:
 
 
 try:
-    from pytorch3d.renderer import MeshRasterizer, PerspectiveCameras, RasterizationSettings
-    from pytorch3d.structures import Meshes
+    from pytorch3d.renderer import (  # pyright: ignore[reportMissingImports]
+        MeshRasterizer,
+        PerspectiveCameras,
+        RasterizationSettings,
+    )
+    from pytorch3d.structures import Meshes  # pyright: ignore[reportMissingImports]
 except ImportError:
     logger.warning("The 'PyTorch3D' module is not installed. Some transformations will not be available.")
 
@@ -339,7 +343,12 @@ class MinMaxNumPoints(Transform):
                     and len(depth) > max_num_points
                 ):
                     data["inputs.depth"] = depth[subsample_indices(depth, max_num_points)]
-                if max_num_points is not None and max_num_points > 0 and len(inputs) > max_num_points:
+                if (
+                    max_num_points is not None
+                    and max_num_points > 0
+                    and inputs is not None
+                    and len(inputs) > max_num_points
+                ):
                     indices = subsample_indices(inputs, max_num_points)
                     data["inputs"] = inputs[indices]
                     if normals is not None:
@@ -2723,7 +2732,7 @@ class RenderDepthMaps(Transform):
     def rotation_from_forward_vec(
         forward_vec: np.ndarray | Any, up_axis: str = "Y", inplane_rot: float | None = None
     ) -> np.ndarray:
-        from mathutils import Euler, Vector
+        from mathutils import Euler, Vector  # pyright: ignore[reportMissingImports]
 
         forward = np.asarray(forward_vec, dtype=np.float64).reshape(-1)
         rotation_matrix = Vector(forward.tolist()).to_track_quat("-Z", up_axis).to_matrix()
@@ -5320,7 +5329,6 @@ __all__ = [
     "RotateMesh",
     "RotatePointcloud",
     "SaveData",
-    "Scale",
     "Scale",
     "SdfFromOcc",
     "SegmentationFromPartNet",

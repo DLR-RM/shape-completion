@@ -89,14 +89,18 @@ from libkinect import KinectSimCython, NoiseType
 
 sim = KinectSimCython()
 depth = sim.simulate(
-    vertices,              # (N, 3) float32 mesh vertices in camera coords
-    faces,                 # (M, 3) int32 face indices
-    width=640, height=480, # Image resolution
-    fx=582.7, fy=582.7,    # Focal lengths
-    cx=320.8, cy=245.3,    # Principal point
-    z_near=0.5, z_far=4.0, # Depth range (meters)
-    baseline=0.075,        # IR projector-camera baseline (meters)
-    noise=NoiseType.PERLIN # Noise type
+    vertices,  # (N, 3) float32 mesh vertices in camera coords
+    faces,  # (M, 3) int32 face indices
+    width=640,
+    height=480,  # Image resolution
+    fx=582.7,
+    fy=582.7,  # Focal lengths
+    cx=320.8,
+    cy=245.3,  # Principal point
+    z_near=0.5,
+    z_far=4.0,  # Depth range (meters)
+    baseline=0.075,  # IR projector-camera baseline (meters)
+    noise=NoiseType.PERLIN,  # Noise type
 )
 ```
 

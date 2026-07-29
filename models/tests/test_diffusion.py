@@ -12,7 +12,6 @@ from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.schedulers.scheduling_dpmsolver_multistep import DPMSolverMultistepScheduler
 from diffusers.schedulers.scheduling_edm_dpmsolver_multistep import EDMDPMSolverMultistepScheduler
 from diffusers.schedulers.scheduling_edm_euler import EDMEulerScheduler
-from pytorch3d.loss import chamfer_distance
 from sklearn.datasets import make_swiss_roll
 from torch import Tensor, nn
 
@@ -28,6 +27,13 @@ from ..src.diffusion.unet import UNet
 from ..src.model import Model
 from ..src.transformer import Attention
 from ..src.vae import VQVAEModel
+
+
+def _chamfer_distance(x: Tensor, y: Tensor) -> Tensor:
+    distances = torch.cdist(x, y)
+    per_batch = distances.min(dim=2).values.mean(dim=1) + distances.min(dim=1).values.mean(dim=1)
+    return per_batch.mean()
+
 
 try:
     from diffusers.schedulers.scheduling_vdm import VDMScheduler
@@ -359,8 +365,8 @@ def test_losses():
 
     assert torch.isclose(loss, loss_perm, atol=1e-6)
     assert not torch.isclose(F.mse_loss(q, k), F.mse_loss(q, k[:, index]), atol=1e-6)
-    d_chamfer = cast(torch.Tensor, chamfer_distance(q, k)[0])
-    d_chamfer_perm = cast(torch.Tensor, chamfer_distance(q, k[:, index])[0])
+    d_chamfer = _chamfer_distance(q, k)
+    d_chamfer_perm = _chamfer_distance(q, k[:, index])
     assert torch.isclose(d_chamfer, d_chamfer_perm, atol=1e-6)
     assert not torch.isclose(
         F.cross_entropy(q.view(-1, q.size(-1)), k.argmax(-1).view(-1)),

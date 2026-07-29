@@ -257,7 +257,9 @@ def test_filter_components_and_smooth_normals() -> None:
     )
     filtered = script._filter_components_2d(mask, keep_largest=True, min_pixels=1)
 
-    normals = np.dstack([mask.astype(np.float32), np.zeros((3, 3), dtype=np.float32), np.ones((3, 3), dtype=np.float32)])
+    normals = np.dstack(
+        [mask.astype(np.float32), np.zeros((3, 3), dtype=np.float32), np.ones((3, 3), dtype=np.float32)]
+    )
     smoothed = script._smooth_normals_map(normals, filtered, kernel_size=2, passes=1)
 
     assert filtered.sum() == 2
@@ -287,7 +289,11 @@ def test_main_smoke_diffusion_writes_outputs(monkeypatch: Any, tmp_path: Path) -
         "decode_diffusion_intermediate",
         lambda model, latent, generator, points_batch_size=None: generator.extract_mesh(np.zeros((2, 2, 2))),
     )
-    monkeypatch.setattr(script, "save_mesh", lambda path, vertices, faces: save_calls.append(Path(path)) or Path(path).write_text("mesh"))
+    monkeypatch.setattr(
+        script,
+        "save_mesh",
+        lambda path, vertices, faces: save_calls.append(Path(path)) or Path(path).write_text("mesh"),
+    )
     monkeypatch.setattr(script.torch.cuda, "is_available", lambda: False)
 
     script.main.__wrapped__(cfg)
@@ -322,7 +328,11 @@ def test_main_smoke_autoregressive_writes_outputs(monkeypatch: Any, tmp_path: Pa
             np.zeros((2, 2, 2))
         ),
     )
-    monkeypatch.setattr(script, "save_mesh", lambda path, vertices, faces: save_calls.append(Path(path)) or Path(path).write_text("mesh"))
+    monkeypatch.setattr(
+        script,
+        "save_mesh",
+        lambda path, vertices, faces: save_calls.append(Path(path)) or Path(path).write_text("mesh"),
+    )
     monkeypatch.setattr(script.torch.cuda, "is_available", lambda: False)
 
     script.main.__wrapped__(cfg)

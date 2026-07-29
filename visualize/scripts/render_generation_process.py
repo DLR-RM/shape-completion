@@ -85,9 +85,9 @@ def extract_suffix(stem: str) -> str:
     if m:
         return m.group(1)
     if stem.startswith("input_"):
-        return stem[len("input_"):]
+        return stem[len("input_") :]
     if stem.startswith("gt_"):
-        return stem[len("gt_"):]
+        return stem[len("gt_") :]
     return ""
 
 
@@ -156,8 +156,9 @@ def save_mp4(frames: list[Image.Image], path: Path, fps: float) -> bool:
 
 def main():
     parser = ArgumentParser(description="Compose rendered frames into strip images.")
-    parser.add_argument("input_dir", type=Path,
-                        help="Directory with rendered PNGs (output of render_generation_process.sh).")
+    parser.add_argument(
+        "input_dir", type=Path, help="Directory with rendered PNGs (output of render_generation_process.sh)."
+    )
     parser.add_argument("--output_dir", type=Path, default=None)
     parser.add_argument("--method", choices=["diffusion", "ar", "both"], default="both")
     parser.add_argument("--labels", action="store_true", help="Add step labels below frames.")
@@ -184,8 +185,11 @@ def main():
         default=None,
         help="MP4 framerate. Default derives from --gif-duration-ms.",
     )
-    parser.add_argument("--implicit", action="store_true",
-                        help="Look for PNGs in implicit/ subdirectory (produced by vis.implicit_render=true).")
+    parser.add_argument(
+        "--implicit",
+        action="store_true",
+        help="Look for PNGs in implicit/ subdirectory (produced by vis.implicit_render=true).",
+    )
     parser.add_argument("--show", action="store_true")
     args = parser.parse_args()
 
@@ -306,7 +310,7 @@ def main():
             if p.stem == "diffusion_strip":
                 suffixes.add("")
             elif p.stem.startswith("diffusion_strip_"):
-                suffixes.add(p.stem[len("diffusion_strip_"):])
+                suffixes.add(p.stem[len("diffusion_strip_") :])
 
         for suffix in sorted(suffixes):
             diff_name = f"diffusion_strip_{suffix}.png" if suffix else "diffusion_strip.png"
