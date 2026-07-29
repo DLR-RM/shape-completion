@@ -11,6 +11,7 @@ completion3d:                     # Completion3D benchmark (ShapeNet 16384-point
 ycb:                              # YCB object models
 automatica:                       # Automatica graspable objects
 bop:                              # BOP benchmark datasets
+gc6d:                             # GraspClutter6D
 automatica_2023_test:             # Automatica 2023 test set
 automatica_2023_dominik:          # Automatica 2023 annotated set
 modelnet40:                       # ModelNet40 (sampled)

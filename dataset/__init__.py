@@ -34,6 +34,7 @@ from .src.fields import (
 from .src.fields import (
     PointsField as PointsField,
 )
+from .src.gc6d_scene import GC6DSceneEval
 from .src.graspnet import GraspNetEval
 from .src.modelnet import ModelNet
 from .src.shapenet import ShapeNet
@@ -747,15 +748,24 @@ def get_bop(cfg: DictConfig, ds: str):
 
 
 def get_bop_scene(cfg: DictConfig, ds: str, split: str) -> BOPSceneEval:
-    parts = ds.split("_")
-    if len(parts) < 2:
-        raise ValueError(f"BOP scene dataset id must look like 'bopscene_<name>[_<split>]', got {ds}.")
-    name = parts[1]
-    requested_split = cfg.data.get("bop_scene_split")
-    if requested_split is None:
-        requested_split = "_".join(parts[2:]) if len(parts) > 2 else ("test" if split == "test" else split)
+    is_gc6d = ds == "gc6d" or ds.startswith("gc6d_")
+    if is_gc6d:
+        name = "graspclutter6d"
+        requested_split = cfg.data.get("gc6d_split")
+        if requested_split is None:
+            suffix = ds.removeprefix("gc6d").removeprefix("_")
+            requested_split = suffix or ("cross_object_train" if split == "train" else "cross_object_test")
+        scene_ids = cfg.data.get("gc6d_scene_ids")
+    else:
+        parts = ds.split("_")
+        if len(parts) < 2:
+            raise ValueError(f"BOP scene dataset id must look like 'bopscene_<name>[_<split>]', got {ds}.")
+        name = parts[1]
+        requested_split = cfg.data.get("bop_scene_split")
+        if requested_split is None:
+            requested_split = "_".join(parts[2:]) if len(parts) > 2 else ("test" if split == "test" else split)
+        scene_ids = cfg.data.get("bop_scene_ids")
 
-    scene_ids = cfg.data.get("bop_scene_ids")
     if scene_ids is not None:
         scene_ids = [int(s) for s in scene_ids]
 
@@ -902,54 +912,72 @@ def get_bop_scene(cfg: DictConfig, ds: str, split: str) -> BOPSceneEval:
     num_points = cfg.data.get("bop_num_points", 100_000)
     num_scene_points = cfg.data.get("bop_num_scene_points", 100_000)
 
+    dataset_kwargs: dict[str, Any] = {
+        "mesh_dir": mesh_dir_path,
+        "scene_ids": scene_ids,
+        "project": cfg.inputs.project,
+        "load_mesh": load_mesh,
+        "crop_to_mesh": crop_to_mesh,
+        "crop_padding": cfg.data.get("bop_crop_padding", 0.1),
+        "mesh_simplify_fraction": cfg.data.get("bop_mesh_simplify_fraction", None),
+        "mesh_scale": cfg.data.get("bop_mesh_scale", 0.001),
+        "load_pcd": load_pcd,
+        "pcd_num_points": pcd_num_points,
+        "generate_points": generate_points,
+        "points_sampling": cfg.data.get("bop_points_sampling", "uniform"),
+        "collate_points": cfg.get("collate_3d"),
+        "load_points": load_points,
+        "sample_scene_points": sample_scene_points,
+        "scene_points_volume": cfg.data.get("bop_scene_points_volume", "cube"),
+        "num_points": num_points,
+        "points_padding": cfg.data.get("bop_points_padding", 0.1),
+        "num_scene_points": num_scene_points,
+        "padding": cfg.data.get("bop_padding", 0.1),
+        "scale_factor": cfg.data.get("bop_scale_factor", 1.0),
+        "load_label": cfg.data.get("bop_load_label", True),
+        "stack_2d": cfg.get("stack_2d", False),
+        "depth_dir": cfg.data.get("bop_depth_dir", "depth"),
+        "mask_dir": cfg.data.get("bop_mask_dir", "mask_visib"),
+        "filter_background": cfg.data.get("bop_filter_background", None),
+        "background_plane_threshold": cfg.data.get("bop_background_plane_threshold", 0.01),
+        "background_plane_iterations": cfg.data.get("bop_background_plane_iterations", 256),
+        "background_plane_max_fit_points": cfg.data.get("bop_background_plane_max_fit_points", 5000),
+        "background_plane_min_inliers": cfg.data.get("bop_background_plane_min_inliers", 100),
+        "background_plane_show": bool(cfg.vis.show and cfg.log.verbose > 1),
+        "statistical_outlier_removal": cfg.data.get("bop_statistical_outlier_removal", False),
+        "statistical_outlier_neighbors": cfg.data.get("bop_statistical_outlier_neighbors", 50),
+        "statistical_outlier_std_ratio": cfg.data.get("bop_statistical_outlier_std_ratio", 2.5),
+        "statistical_outlier_min_points": cfg.data.get("bop_statistical_outlier_min_points", None),
+        "statistical_outlier_show": bool(cfg.vis.show and cfg.log.verbose > 1),
+        "dbscan_filter": cfg.data.get("bop_dbscan_filter", False),
+        "dbscan_eps": cfg.data.get("bop_dbscan_eps", 0.05),
+        "dbscan_min_points": cfg.data.get("bop_dbscan_min_points", 10),
+        "dbscan_keep": cfg.data.get("bop_dbscan_keep", "non_noise"),
+        "dbscan_include_background": cfg.data.get("bop_dbscan_include_background", False),
+        "dbscan_show": bool(cfg.vis.show and cfg.log.verbose > 1),
+        "one_view_per_scene": cfg.get("single_view", False),
+        "transforms": transforms_3d,
+    }
+    if is_gc6d:
+        return GC6DSceneEval(
+            root=Path(cfg.dirs["gc6d"]),
+            split=cast(
+                Literal[
+                    "cross_object_train",
+                    "cross_object_test",
+                    "intra_object_train",
+                    "intra_object_test",
+                ],
+                requested_split,
+            ),
+            camera=cfg.data.get("gc6d_camera"),
+            **dataset_kwargs,
+        )
     return BOPSceneEval(
         root=Path(cfg.dirs["bop"]),
         name=name,
         split=requested_split,
-        mesh_dir=mesh_dir_path,
-        scene_ids=scene_ids,
-        project=cfg.inputs.project,
-        load_mesh=load_mesh,
-        crop_to_mesh=crop_to_mesh,
-        crop_padding=cfg.data.get("bop_crop_padding", 0.1),
-        mesh_simplify_fraction=cfg.data.get("bop_mesh_simplify_fraction", None),
-        mesh_scale=cfg.data.get("bop_mesh_scale", 0.001),
-        load_pcd=load_pcd,
-        pcd_num_points=pcd_num_points,
-        generate_points=generate_points,
-        points_sampling=cfg.data.get("bop_points_sampling", "uniform"),
-        collate_points=cfg.get("collate_3d"),
-        load_points=load_points,
-        sample_scene_points=sample_scene_points,
-        scene_points_volume=cfg.data.get("bop_scene_points_volume", "cube"),
-        num_points=num_points,
-        points_padding=cfg.data.get("bop_points_padding", 0.1),
-        num_scene_points=num_scene_points,
-        padding=cfg.data.get("bop_padding", 0.1),
-        scale_factor=cfg.data.get("bop_scale_factor", 1.0),
-        load_label=cfg.data.get("bop_load_label", True),
-        stack_2d=cfg.get("stack_2d", False),
-        depth_dir=cfg.data.get("bop_depth_dir", "depth"),
-        mask_dir=cfg.data.get("bop_mask_dir", "mask_visib"),
-        filter_background=cfg.data.get("bop_filter_background", None),
-        background_plane_threshold=cfg.data.get("bop_background_plane_threshold", 0.01),
-        background_plane_iterations=cfg.data.get("bop_background_plane_iterations", 256),
-        background_plane_max_fit_points=cfg.data.get("bop_background_plane_max_fit_points", 5000),
-        background_plane_min_inliers=cfg.data.get("bop_background_plane_min_inliers", 100),
-        background_plane_show=bool(cfg.vis.show and cfg.log.verbose > 1),
-        statistical_outlier_removal=cfg.data.get("bop_statistical_outlier_removal", False),
-        statistical_outlier_neighbors=cfg.data.get("bop_statistical_outlier_neighbors", 50),
-        statistical_outlier_std_ratio=cfg.data.get("bop_statistical_outlier_std_ratio", 2.5),
-        statistical_outlier_min_points=cfg.data.get("bop_statistical_outlier_min_points", None),
-        statistical_outlier_show=bool(cfg.vis.show and cfg.log.verbose > 1),
-        dbscan_filter=cfg.data.get("bop_dbscan_filter", False),
-        dbscan_eps=cfg.data.get("bop_dbscan_eps", 0.05),
-        dbscan_min_points=cfg.data.get("bop_dbscan_min_points", 10),
-        dbscan_keep=cfg.data.get("bop_dbscan_keep", "non_noise"),
-        dbscan_include_background=cfg.data.get("bop_dbscan_include_background", False),
-        dbscan_show=bool(cfg.vis.show and cfg.log.verbose > 1),
-        one_view_per_scene=cfg.get("single_view", False),
-        transforms=transforms_3d,
+        **dataset_kwargs,
     )
 
 
@@ -1558,7 +1586,7 @@ def get_dataset(
                 data = CocoInstanceSegmentation(data_dir=Path(cfg.dirs[ds]), split="train", transforms=transforms)
             elif "tabletop" in ds:
                 data = get_tabletop(cfg, split="train", ds=ds)
-            elif ds.startswith("bopscene"):
+            elif ds.startswith(("bopscene", "gc6d")):
                 data = get_bop_scene(cfg, ds, split="train")
             elif ds.startswith("graspnet"):
                 data = get_graspnet(cfg, ds, split="train")
@@ -1629,7 +1657,7 @@ def get_dataset(
                 data = CocoInstanceSegmentation(data_dir=Path(cfg.dirs[ds]), split="val", transforms=transforms)
             elif "tabletop" in ds:
                 data = get_tabletop(cfg, split="val", ds=ds)
-            elif ds.startswith("bopscene"):
+            elif ds.startswith(("bopscene", "gc6d")):
                 data = get_bop_scene(cfg, ds, split="val")
             elif ds.startswith("graspnet"):
                 data = get_graspnet(cfg, ds, split="val")
@@ -1682,7 +1710,7 @@ def get_dataset(
                 )
             elif ds == "ycb":
                 data = get_ycb(cfg, split="test", load_pointcloud=bool(load_pointcloud_mode), load_voxels=load_voxels)
-            elif ds.startswith("bopscene"):
+            elif ds.startswith(("bopscene", "gc6d")):
                 data = get_bop_scene(cfg, ds, split="test")
             elif "bop" in ds:
                 data = get_bop(cfg, ds)

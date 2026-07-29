@@ -31,9 +31,10 @@ class GC6DSceneEval(BOPSceneEval):
        ID ``img_num`` maps to camera via ``img_num % 4``: 1→D415, 2→D435,
        3→Azure Kinect, 0→Zivid (per the official ``graspclutter6dAPI`` loader).
 
-    Masks use ``visible_mask/`` (BOP ``mask_visib`` equivalent); the amodal
-    ``mask/`` directory is also available. Meshes in ``models_eval/`` are in
-    millimeters, so keep the default ``mesh_scale=0.001``.
+    Visible masks use the standard BOP ``mask_visib/`` directory; ``mask/``
+    contains the amodal masks. The released scene archives do not contain a
+    ``visible_mask/`` directory. Meshes in ``models_eval/`` are in millimeters,
+    so keep the default ``mesh_scale=0.001``.
     """
 
     def __init__(
@@ -47,6 +48,7 @@ class GC6DSceneEval(BOPSceneEval):
         ],
         camera: Literal["d415", "d435", "azure_kinect", "zivid"] | None = None,
         scene_ids: Iterable[int] | None = None,
+        name: str = "graspclutter6d",
         **kwargs: Any,
     ) -> None:
         if split not in _GC6D_SPLITS:
@@ -60,28 +62,27 @@ class GC6DSceneEval(BOPSceneEval):
             requested = set(scene_ids)
             missing = requested - set(split_scene_ids)
             if missing:
-                raise ValueError(
-                    f"Requested scene_ids {sorted(missing)} are not in GraspClutter6D split {split!r}."
-                )
+                raise ValueError(f"Requested scene_ids {sorted(missing)} are not in GraspClutter6D split {split!r}.")
             split_scene_ids = [s for s in split_scene_ids if s in requested]
 
-        kwargs.setdefault("mesh_dir", root / "models_eval")
-        kwargs.setdefault("mask_dir", "visible_mask")
+        if kwargs.get("mesh_dir") is None:
+            kwargs["mesh_dir"] = root / "models_eval"
+        kwargs.setdefault("mask_dir", "mask_visib")
         kwargs.setdefault("target_filename", None)
-        kwargs.setdefault("name", "graspclutter6d")
-
-        super().__init__(
-            root=root,
-            name="scenes",
-            split="scenes",
-            scene_ids=split_scene_ids,
-            **kwargs,
-        )
 
         self.gc6d_split = split
         self.gc6d_camera = camera
         self.gc6d_camera_offset = _GC6D_CAMERA_OFFSETS.get(camera) if camera is not None else None
-        self.samples = self._enumerate_samples_gc6d()
+
+        super().__init__(
+            root=root,
+            name=name,
+            split="scenes",
+            scene_ids=split_scene_ids,
+            **kwargs,
+        )
+        self.split = split
+        self.camera = camera
 
     @staticmethod
     def _load_split_scene_ids(root: Path, split: str) -> list[int]:
@@ -111,7 +112,7 @@ class GC6DSceneEval(BOPSceneEval):
             )
         return scene_dirs
 
-    def _enumerate_samples_gc6d(self) -> list[_BOPSample]:
+    def _enumerate_samples(self) -> list[_BOPSample]:
         samples: list[_BOPSample] = []
         for scene_dir in self.scene_dirs:
             ann_ids = sorted(p.stem for p in (scene_dir / self.depth_dir).glob("*.png"))

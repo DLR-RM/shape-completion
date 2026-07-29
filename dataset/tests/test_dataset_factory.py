@@ -106,3 +106,22 @@ def test_save_mesh_extends_keys_to_keep_for_mesh_export() -> None:
     assert keys is not None
     assert "mesh.vertices" in keys
     assert "mesh.triangles" in keys
+
+
+def test_get_dataset_routes_gc6d_to_scene_factory(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _base_cfg(show=False, save=False, mesh=False)
+    cfg.data.test_ds = ["gc6d_cross_object_test"]
+    calls: list[tuple[str, str]] = []
+    sentinel: list[object] = []
+
+    def fake_get_bop_scene(_cfg: Any, ds: str, split: str) -> list[object]:
+        calls.append((ds, split))
+        return sentinel
+
+    monkeypatch.setattr("dataset.get_bop_scene", fake_get_bop_scene)
+    monkeypatch.setattr("dataset.print_dataset_info", lambda *args, **kwargs: None)
+
+    datasets = get_dataset(cfg, splits=("test",))
+
+    assert calls == [("gc6d_cross_object_test", "test")]
+    assert datasets["test"] is sentinel
