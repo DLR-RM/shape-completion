@@ -51,6 +51,187 @@ def _as_tensor(value: Any) -> Tensor:
     return cast(Tensor, value)
 
 
+def _trilinear_sample_xyz(volume: np.ndarray, origin: np.ndarray, spacing: float, pts: np.ndarray) -> np.ndarray:
+    nx, ny, nz = volume.shape
+    coords = (pts - origin) / spacing
+    x = np.clip(coords[:, 0], 0, nx - 2)
+    y = np.clip(coords[:, 1], 0, ny - 2)
+    z = np.clip(coords[:, 2], 0, nz - 2)
+    x0 = np.floor(x).astype(np.int64)
+    y0 = np.floor(y).astype(np.int64)
+    z0 = np.floor(z).astype(np.int64)
+    dx = x - x0
+    dy = y - y0
+    dz = z - z0
+
+    c000 = volume[x0, y0, z0]
+    c100 = volume[x0 + 1, y0, z0]
+    c010 = volume[x0, y0 + 1, z0]
+    c110 = volume[x0 + 1, y0 + 1, z0]
+    c001 = volume[x0, y0, z0 + 1]
+    c101 = volume[x0 + 1, y0, z0 + 1]
+    c011 = volume[x0, y0 + 1, z0 + 1]
+    c111 = volume[x0 + 1, y0 + 1, z0 + 1]
+
+    c00 = c000 * (1 - dx) + c100 * dx
+    c10 = c010 * (1 - dx) + c110 * dx
+    c01 = c001 * (1 - dx) + c101 * dx
+    c11 = c011 * (1 - dx) + c111 * dx
+    c0 = c00 * (1 - dy) + c10 * dy
+    c1 = c01 * (1 - dy) + c11 * dy
+    return c0 * (1 - dz) + c1 * dz
+
+
+def _surface_edges_from_xyz_volume(
+    volume: np.ndarray,
+    origin: np.ndarray,
+    spacing: float,
+    threshold: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    pts_list: list[np.ndarray] = []
+    lo_list: list[np.ndarray] = []
+    hi_list: list[np.ndarray] = []
+
+    v0 = volume[:-1, :, :]
+    v1 = volume[1:, :, :]
+    cross = (v0 - threshold) * (v1 - threshold) < 0
+    ix, iy, iz = np.where(cross)
+    if len(ix) > 0:
+        t = (threshold - v0[ix, iy, iz]) / (v1[ix, iy, iz] - v0[ix, iy, iz])
+        lo = np.stack(
+            [
+                origin[0] + ix * spacing,
+                origin[1] + iy * spacing,
+                origin[2] + iz * spacing,
+            ],
+            axis=-1,
+        )
+        hi = np.stack(
+            [
+                origin[0] + (ix + 1) * spacing,
+                origin[1] + iy * spacing,
+                origin[2] + iz * spacing,
+            ],
+            axis=-1,
+        )
+        lo_list.append(lo)
+        hi_list.append(hi)
+        pts_list.append(
+            np.stack(
+                [
+                    origin[0] + (ix + t) * spacing,
+                    origin[1] + iy * spacing,
+                    origin[2] + iz * spacing,
+                ],
+                axis=-1,
+            )
+        )
+
+    v0 = volume[:, :-1, :]
+    v1 = volume[:, 1:, :]
+    cross = (v0 - threshold) * (v1 - threshold) < 0
+    ix, iy, iz = np.where(cross)
+    if len(ix) > 0:
+        t = (threshold - v0[ix, iy, iz]) / (v1[ix, iy, iz] - v0[ix, iy, iz])
+        lo = np.stack(
+            [
+                origin[0] + ix * spacing,
+                origin[1] + iy * spacing,
+                origin[2] + iz * spacing,
+            ],
+            axis=-1,
+        )
+        hi = np.stack(
+            [
+                origin[0] + ix * spacing,
+                origin[1] + (iy + 1) * spacing,
+                origin[2] + iz * spacing,
+            ],
+            axis=-1,
+        )
+        lo_list.append(lo)
+        hi_list.append(hi)
+        pts_list.append(
+            np.stack(
+                [
+                    origin[0] + ix * spacing,
+                    origin[1] + (iy + t) * spacing,
+                    origin[2] + iz * spacing,
+                ],
+                axis=-1,
+            )
+        )
+
+    v0 = volume[:, :, :-1]
+    v1 = volume[:, :, 1:]
+    cross = (v0 - threshold) * (v1 - threshold) < 0
+    ix, iy, iz = np.where(cross)
+    if len(ix) > 0:
+        t = (threshold - v0[ix, iy, iz]) / (v1[ix, iy, iz] - v0[ix, iy, iz])
+        lo = np.stack(
+            [
+                origin[0] + ix * spacing,
+                origin[1] + iy * spacing,
+                origin[2] + iz * spacing,
+            ],
+            axis=-1,
+        )
+        hi = np.stack(
+            [
+                origin[0] + ix * spacing,
+                origin[1] + iy * spacing,
+                origin[2] + (iz + 1) * spacing,
+            ],
+            axis=-1,
+        )
+        lo_list.append(lo)
+        hi_list.append(hi)
+        pts_list.append(
+            np.stack(
+                [
+                    origin[0] + ix * spacing,
+                    origin[1] + iy * spacing,
+                    origin[2] + (iz + t) * spacing,
+                ],
+                axis=-1,
+            )
+        )
+
+    if not pts_list:
+        empty = np.empty((0, 3), dtype=np.float64)
+        return empty, empty, empty
+
+    pts = np.concatenate(pts_list, axis=0).astype(np.float64)
+    lo_pts = np.concatenate(lo_list, axis=0).astype(np.float64)
+    hi_pts = np.concatenate(hi_list, axis=0).astype(np.float64)
+    return pts, lo_pts, hi_pts
+
+
+def _surface_normals_from_xyz_volume(
+    volume: np.ndarray,
+    origin: np.ndarray,
+    spacing: float,
+    pts: np.ndarray,
+) -> np.ndarray:
+    if pts.shape[0] == 0:
+        return np.empty((0, 3), dtype=np.float64)
+    grad_vols = np.gradient(volume.astype(np.float64), spacing, spacing, spacing, edge_order=1)
+    grad = np.stack([_trilinear_sample_xyz(g, origin, spacing, pts) for g in grad_vols], axis=-1)
+    norm = np.linalg.norm(grad, axis=1, keepdims=True)
+    return grad / np.maximum(norm, 1e-12)
+
+
+def _surface_from_xyz_volume(
+    volume: np.ndarray,
+    origin: np.ndarray,
+    spacing: float,
+    threshold: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    pts, _lo_pts, _hi_pts = _surface_edges_from_xyz_volume(volume, origin, spacing, threshold)
+    normals = _surface_normals_from_xyz_volume(volume, origin, spacing, pts)
+    return pts, normals
+
+
 class Generator:
     def __init__(
         self,
@@ -69,10 +250,22 @@ class Generator:
         use_skimage: bool = False,
         sdf: bool = False,
         bounds: tuple[float, float] | tuple[tuple[float, float, float], tuple[float, float, float]] = (-0.5, 0.5),
+        surface_refinement_steps: int = 0,
+        surface_refinement_mode: str = "secant",
+        surface_newton_steps: int = 0,
+        surface_normal_mode: str = "volume",
     ):
         assert not (extraction_class != 1 and upsampling_steps), "Non-binary data cannot be upsampled"
+        if surface_refinement_mode not in {"secant", "bisection", "linear", "midpoint"}:
+            raise ValueError("surface_refinement_mode must be one of 'secant', 'bisection', 'linear', or 'midpoint'")
+        if surface_normal_mode not in {"volume", "autograd"}:
+            raise ValueError("surface_normal_mode must be one of 'volume' or 'autograd'")
         self.model = model
         self.refinement_steps = refinement_steps
+        self.surface_refinement_steps = surface_refinement_steps
+        self.surface_refinement_mode = surface_refinement_mode
+        self.surface_newton_steps = surface_newton_steps
+        self.surface_normal_mode = surface_normal_mode
         self.threshold = threshold
         self.extraction_class = extraction_class
         self.resolution = resolution
@@ -295,6 +488,387 @@ class Generator:
             raise NotImplementedError(f"Grid generation is not implemented for '{self.model.name}'")
         return grid, points, feature
 
+    def generate_surface_per_instance_streaming(
+        self,
+        item: ItemType,
+        threshold: float | None = None,
+        align_to_gt: bool = False,
+        show: bool = False,
+    ) -> list[dict[str, Any]]:
+        if not hasattr(self.model, "stream_instance_logits"):
+            raise NotImplementedError(f"Model '{self.model.name}' does not support streaming instance logits")
+
+        item = {k: to_tensor(v, device=self.device) for k, v in item.items()}
+        points = self.query_points.unsqueeze(0).to(self.device)
+        feature = None
+        if hasattr(self.model, "encode"):
+            with torch.no_grad():
+                feature = cast(Any, self.model).encode(**item)
+
+        nx, ny, nz = self.grid_shape
+        total_points = int(nx * ny * nz)
+        vs = float(self.voxel_size)
+        total = np.array([nx, ny, nz], dtype=np.float32) * vs
+        origin = (self.center - (total - vs) / 2.0).astype(np.float64)
+
+        thr = threshold or self.threshold
+        thr_val = float(thr if self.sdf else np.log(thr / (1 - thr)))
+
+        volumes: dict[int, np.ndarray] = {}
+        expected_start = 0
+        with torch.no_grad():
+            stream = cast(Any, self.model).stream_instance_logits(
+                inputs=item.get("inputs"),
+                points=points,
+                feature=feature,
+                data=item,
+                threshold=thr,
+                align_to_gt=align_to_gt,
+                points_batch_size=self.points_batch_size,
+                show=show,
+            )
+            for chunk in stream:
+                instance_indices = [int(i) for i in chunk.get("instance_indices", [])]
+                if "logits" not in chunk:
+                    for inst_idx in instance_indices:
+                        volumes.setdefault(inst_idx, np.empty(total_points, dtype=np.float32))
+                    continue
+
+                start = int(chunk["start"])
+                end = int(chunk["end"])
+                if start != expected_start:
+                    raise RuntimeError(
+                        f"Streaming logits are not contiguous: expected start {expected_start}, got {start}"
+                    )
+                logits = cast(Tensor, chunk["logits"]).detach().float().cpu().numpy()
+                if logits.ndim == 1:
+                    logits = logits[None, :]
+                if logits.shape[0] != len(instance_indices):
+                    raise RuntimeError(
+                        f"Streaming logits row count {logits.shape[0]} does not match "
+                        f"{len(instance_indices)} instance indices"
+                    )
+                for row, inst_idx in enumerate(instance_indices):
+                    volume = volumes.setdefault(inst_idx, np.empty(total_points, dtype=np.float32))
+                    volume[start:end] = logits[row]
+                expected_start = end
+
+        if volumes and expected_start != total_points:
+            raise RuntimeError(f"Streaming logits ended at {expected_start}, expected {total_points}")
+
+        results: list[dict[str, Any]] = []
+        for inst_idx, flat in sorted(volumes.items()):
+            volume = flat.reshape(nx, ny, nz)
+            if not np.any(volume >= thr_val):
+                continue
+            pts, lo_pts, hi_pts = _surface_edges_from_xyz_volume(volume, origin, vs, thr_val)
+            if pts.shape[0] and self.surface_refinement_steps:
+                pts = self._refine_streaming_surface_edges(
+                    item=item,
+                    feature=feature,
+                    inst_idx=inst_idx,
+                    lo_pts=lo_pts,
+                    hi_pts=hi_pts,
+                    threshold=thr,
+                    threshold_value=thr_val,
+                    align_to_gt=align_to_gt,
+                    show=show,
+                )
+            if pts.shape[0] == 0:
+                continue
+            if self.surface_newton_steps:
+                pts = self._newton_project_streaming_surface_points(
+                    item=item,
+                    feature=feature,
+                    inst_idx=inst_idx,
+                    pts=pts,
+                    threshold=thr,
+                    threshold_value=thr_val,
+                    align_to_gt=align_to_gt,
+                    show=show,
+                )
+            if self.surface_normal_mode == "autograd":
+                normals = self._autograd_streaming_surface_normals(
+                    item=item,
+                    feature=feature,
+                    inst_idx=inst_idx,
+                    pts=pts,
+                    threshold=thr,
+                    align_to_gt=align_to_gt,
+                    show=show,
+                    volume=volume,
+                    origin=origin,
+                    spacing=vs,
+                )
+            else:
+                normals = _surface_normals_from_xyz_volume(volume, origin, vs, pts)
+            results.append(
+                {
+                    "points": pts.astype(np.float32),
+                    "normals": normals.astype(np.float32),
+                    "voxel_size": vs,
+                    "center": self.center.astype(np.float32),
+                    "grid_origin": origin.astype(np.float32),
+                    "grid_shape": np.array([nx, ny, nz], dtype=np.int32),
+                    "threshold": thr_val,
+                    "implicit_threshold": float(thr),
+                    "instance_idx": inst_idx,
+                    "surface_refinement_steps": int(self.surface_refinement_steps),
+                    "surface_refinement_mode": self.surface_refinement_mode,
+                    "surface_newton_steps": int(self.surface_newton_steps),
+                    "surface_normal_mode": self.surface_normal_mode,
+                }
+            )
+        return results
+
+    def _stream_instance_values(
+        self,
+        *,
+        item: ItemType,
+        feature: FeatureTypes | None,
+        inst_idx: int,
+        points: np.ndarray,
+        threshold: float,
+        align_to_gt: bool,
+        show: bool,
+    ) -> np.ndarray:
+        if points.shape[0] == 0:
+            return np.empty((0,), dtype=np.float64)
+
+        points_tensor = torch.from_numpy(points.astype(np.float32)).unsqueeze(0).to(self.device)
+        values = np.empty((points.shape[0],), dtype=np.float64)
+        seen = np.zeros((points.shape[0],), dtype=bool)
+        with torch.no_grad():
+            stream = cast(Any, self.model).stream_instance_logits(
+                inputs=item.get("inputs"),
+                points=points_tensor,
+                feature=feature,
+                data=item,
+                threshold=threshold,
+                align_to_gt=align_to_gt,
+                points_batch_size=self.points_batch_size,
+                show=show,
+            )
+            for chunk in stream:
+                if "logits" not in chunk:
+                    continue
+                instance_indices = [int(i) for i in chunk.get("instance_indices", [])]
+                if inst_idx not in instance_indices:
+                    continue
+                start = int(chunk["start"])
+                end = int(chunk["end"])
+                logits = cast(Tensor, chunk["logits"]).detach().float().cpu().numpy()
+                if logits.ndim == 1:
+                    logits = logits[None, :]
+                values[start:end] = logits[instance_indices.index(inst_idx)]
+                seen[start:end] = True
+
+        if not bool(np.all(seen)):
+            missing = int(points.shape[0] - np.count_nonzero(seen))
+            raise RuntimeError(f"Streaming refinement did not return {missing} values for instance {inst_idx}")
+        return values
+
+    def _stream_instance_values_and_gradients(
+        self,
+        *,
+        item: ItemType,
+        feature: FeatureTypes | None,
+        inst_idx: int,
+        points: np.ndarray,
+        threshold: float,
+        align_to_gt: bool,
+        show: bool,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        if points.shape[0] == 0:
+            return np.empty((0,), dtype=np.float64), np.empty((0, 3), dtype=np.float64)
+
+        points_tensor = torch.from_numpy(points.astype(np.float32)).unsqueeze(0).to(self.device)
+        points_tensor.requires_grad_(True)
+        values = np.empty((points.shape[0],), dtype=np.float64)
+        gradients = np.empty((points.shape[0], 3), dtype=np.float64)
+        seen = np.zeros((points.shape[0],), dtype=bool)
+
+        with torch.enable_grad():
+            stream = cast(Any, self.model).stream_instance_logits(
+                inputs=item.get("inputs"),
+                points=points_tensor,
+                feature=feature,
+                data=item,
+                threshold=threshold,
+                align_to_gt=align_to_gt,
+                points_batch_size=self.points_batch_size,
+                show=show,
+                enable_grad=True,
+            )
+            for chunk in stream:
+                if "logits" not in chunk:
+                    continue
+                instance_indices = [int(i) for i in chunk.get("instance_indices", [])]
+                if inst_idx not in instance_indices:
+                    continue
+                start = int(chunk["start"])
+                end = int(chunk["end"])
+                logits = cast(Tensor, chunk["logits"])
+                if logits.ndim == 1:
+                    logits = logits[None, :]
+                selected = logits[instance_indices.index(inst_idx)]
+                if not selected.requires_grad:
+                    raise RuntimeError(
+                        "Streaming logits are detached; model.stream_instance_logits must support enable_grad=True"
+                    )
+                grad = autograd.grad(selected.sum(), points_tensor, retain_graph=False, create_graph=False)[0]
+                values[start:end] = selected.detach().float().cpu().numpy()
+                gradients[start:end] = grad[0, start:end].detach().float().cpu().numpy()
+                seen[start:end] = True
+
+        if not bool(np.all(seen)):
+            missing = int(points.shape[0] - np.count_nonzero(seen))
+            raise RuntimeError(f"Streaming gradient query did not return {missing} values for instance {inst_idx}")
+        return values, gradients
+
+    def _refine_streaming_surface_edges(
+        self,
+        *,
+        item: ItemType,
+        feature: FeatureTypes | None,
+        inst_idx: int,
+        lo_pts: np.ndarray,
+        hi_pts: np.ndarray,
+        threshold: float,
+        threshold_value: float,
+        align_to_gt: bool,
+        show: bool,
+    ) -> np.ndarray:
+        lo = lo_pts.copy()
+        hi = hi_pts.copy()
+        f_lo = (
+            self._stream_instance_values(
+                item=item,
+                feature=feature,
+                inst_idx=inst_idx,
+                points=lo,
+                threshold=threshold,
+                align_to_gt=align_to_gt,
+                show=show,
+            )
+            - threshold_value
+        )
+        f_hi = (
+            self._stream_instance_values(
+                item=item,
+                feature=feature,
+                inst_idx=inst_idx,
+                points=hi,
+                threshold=threshold,
+                align_to_gt=align_to_gt,
+                show=show,
+            )
+            - threshold_value
+        )
+
+        mode = self.surface_refinement_mode
+        n_steps = max(1, int(self.surface_refinement_steps))
+        mid = 0.5 * (lo + hi)
+        for _ in range(n_steps):
+            if mode in {"bisection", "midpoint"}:
+                t = np.full_like(f_lo, 0.5, dtype=np.float64)
+            else:
+                denom = f_hi - f_lo
+                t = np.divide(-f_lo, denom, out=np.full_like(f_lo, 0.5, dtype=np.float64), where=np.abs(denom) > 1e-12)
+                t = np.clip(t, 0.0, 1.0)
+
+            mid = lo + t[:, None] * (hi - lo)
+            if mode in {"linear", "midpoint"}:
+                return mid.astype(np.float64)
+
+            f_mid = (
+                self._stream_instance_values(
+                    item=item,
+                    feature=feature,
+                    inst_idx=inst_idx,
+                    points=mid,
+                    threshold=threshold,
+                    align_to_gt=align_to_gt,
+                    show=show,
+                )
+                - threshold_value
+            )
+            same_as_lo = np.signbit(f_mid) == np.signbit(f_lo)
+            lo[same_as_lo] = mid[same_as_lo]
+            f_lo[same_as_lo] = f_mid[same_as_lo]
+            hi[~same_as_lo] = mid[~same_as_lo]
+            f_hi[~same_as_lo] = f_mid[~same_as_lo]
+
+        if mode == "secant":
+            return mid.astype(np.float64)
+        return (0.5 * (lo + hi)).astype(np.float64)
+
+    def _newton_project_streaming_surface_points(
+        self,
+        *,
+        item: ItemType,
+        feature: FeatureTypes | None,
+        inst_idx: int,
+        pts: np.ndarray,
+        threshold: float,
+        threshold_value: float,
+        align_to_gt: bool,
+        show: bool,
+    ) -> np.ndarray:
+        projected = pts.astype(np.float64, copy=True)
+        max_step = float(self.voxel_size)
+        for _ in range(max(1, int(self.surface_newton_steps))):
+            values, gradients = self._stream_instance_values_and_gradients(
+                item=item,
+                feature=feature,
+                inst_idx=inst_idx,
+                points=projected,
+                threshold=threshold,
+                align_to_gt=align_to_gt,
+                show=show,
+            )
+            residual = values - threshold_value
+            grad_norm_sq = np.sum(gradients * gradients, axis=1)
+            scale = np.divide(residual, grad_norm_sq, out=np.zeros_like(residual), where=grad_norm_sq > 1e-16)
+            step = scale[:, None] * gradients
+            step_norm = np.linalg.norm(step, axis=1)
+            damp = np.divide(max_step, step_norm, out=np.ones_like(step_norm), where=step_norm > max_step)
+            projected = projected - step * np.minimum(damp, 1.0)[:, None]
+        return projected
+
+    def _autograd_streaming_surface_normals(
+        self,
+        *,
+        item: ItemType,
+        feature: FeatureTypes | None,
+        inst_idx: int,
+        pts: np.ndarray,
+        threshold: float,
+        align_to_gt: bool,
+        show: bool,
+        volume: np.ndarray,
+        origin: np.ndarray,
+        spacing: float,
+    ) -> np.ndarray:
+        _values, gradients = self._stream_instance_values_and_gradients(
+            item=item,
+            feature=feature,
+            inst_idx=inst_idx,
+            points=pts,
+            threshold=threshold,
+            align_to_gt=align_to_gt,
+            show=show,
+        )
+        norm = np.linalg.norm(gradients, axis=1, keepdims=True)
+        normals = gradients / np.maximum(norm, 1e-12)
+        # At locally-flat points the autograd gradient vanishes, leaving a zero-length
+        # normal that yields NaN normal consistency downstream. Fall back to the
+        # finite-difference volume normal there.
+        degenerate = np.linalg.norm(normals, axis=1) < 0.5
+        if degenerate.any():
+            normals[degenerate] = _surface_normals_from_xyz_volume(volume, origin, spacing, pts[degenerate])
+        return normals
+
     @torch.inference_mode()
     def generate_grid_per_instance(
         self,
@@ -303,6 +877,7 @@ class Generator:
         align_to_gt: bool = False,
         show: bool = False,
         return_meta: bool = True,
+        full_grid: bool = False,
     ) -> list[np.ndarray | dict[str, Any]]:
         item = {k: to_tensor(v, device=self.device) for k, v in item.items()}
         if "points" not in item or _as_tensor(item["points"]).numel() != self.query_points.numel():
@@ -343,6 +918,28 @@ class Generator:
             if return_meta:
                 return [{"grid": empty, "voxel_size": self.voxel_size, "center": self.center}]
             return [empty]
+
+        if full_grid:
+            results: list[np.ndarray | dict[str, Any]] = []
+            for slot_idx, logit in enumerate(logits):
+                if logit.numel() == 0:
+                    continue
+                vol = logit.view(nx, ny, nz).numpy().astype(np.float32)
+                occupied = vol >= (thr if self.sdf else thr_val)
+                if not occupied.any():
+                    continue
+                if return_meta:
+                    results.append(
+                        {
+                            "grid": vol,
+                            "voxel_size": float(self.voxel_size),
+                            "center": self.center.astype(np.float32),
+                            "instance_idx": slot_idx,
+                        }
+                    )
+                else:
+                    results.append(vol)
+            return results
 
         # Helper for candidate selection (soft Dice + coarse consistency)
         def _select_best_candidate(

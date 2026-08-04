@@ -742,6 +742,7 @@ def main(cfg: DictConfig):
             )
             gt_mesh.export(out_dir / "gt.ply")
 
+        implicit_dir: Path | None = None
         with fabric.autocast(), torch.no_grad():
             if is_diffusion:
                 method_dir = out_dir / "diffusion"
@@ -777,6 +778,7 @@ def main(cfg: DictConfig):
                     latent = intermediates[step_idx]
                     if implicit_render:
                         assert implicit_renderer is not None
+                        assert implicit_dir is not None
                         feature = decode_diffusion_feature(model, latent)
                         predict_fn = partial(
                             _implicit_predict,
@@ -839,6 +841,7 @@ def main(cfg: DictConfig):
                     partial_seq = intermediates[inter_idx]
                     if implicit_render:
                         assert implicit_renderer is not None
+                        assert implicit_dir is not None
                         feature = decode_ar_feature(model, partial_seq, n_total)
                         predict_fn = partial(
                             _implicit_predict,

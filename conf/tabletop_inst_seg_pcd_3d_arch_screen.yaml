@@ -1,0 +1,10 @@
+defaults:
+  - tabletop_inst_seg_pcd_3d
+  - _self_
+
+# Branch controls. The disabled values reproduce the shared C0 control.
+depth_descriptor:
+voxel_anchor_resolutions:
+extent_weight: 0.0
+extent_quantile_temperature: 0.02
+allow_branch_warmstart: false

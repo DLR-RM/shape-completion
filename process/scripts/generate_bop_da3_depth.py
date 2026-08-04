@@ -169,7 +169,7 @@ def _load_da3_predictor(args: Namespace) -> PredictDepths:
     except ModuleNotFoundError:
         api_spec = None
     if api_spec is not None:
-        from depth_anything_3.api import DepthAnything3
+        from depth_anything_3.api import DepthAnything3  # pyright: ignore[reportMissingImports]
     else:
         logger.info("depth_anything_3.api not found; falling back to depth_anything_3.DepthAnything3.")
         from depth_anything_3 import DepthAnything3  # type: ignore[no-redef]

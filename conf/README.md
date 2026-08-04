@@ -6,6 +6,7 @@ Hydra configuration files for shape completion experiments.
 
 ```bash
 # As submodule
+git submodule add git@rmc-github.robotic.dlr.de:humt-ma/shape-completion-conf.git conf
 ```
 
 ## Quick Start

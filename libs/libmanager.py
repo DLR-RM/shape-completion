@@ -5,6 +5,7 @@ import os
 import pathlib
 import shutil
 import subprocess
+import sys
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -12,19 +13,29 @@ logger = logging.getLogger(__name__)
 _LIBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)))
 
 
+def _uv_executable() -> str | None:
+    configured = os.environ.get("UV_BIN")
+    if configured:
+        return configured
+    return shutil.which("uv")
+
+
 def _uv_available() -> bool:
+    executable = _uv_executable()
+    if executable is None:
+        return False
     try:
-        subprocess.run(["uv", "--version"], capture_output=True, check=True)
+        subprocess.run([executable, "--version"], capture_output=True, check=True)
         return True
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
 
 
-def get_pip_command(use_uv: bool = True) -> list[str]:
-    """Return ['uv', 'pip'] if use_uv is True and uv is available, else ['pip']."""
+def get_pip_command(action: str, use_uv: bool = True) -> list[str]:
+    """Return an installer command targeting the invoking Python environment."""
     if use_uv and _uv_available():
-        return ["uv", "pip"]
-    return ["pip"]
+        return [_uv_executable() or "uv", "pip", action, "--python", sys.executable]
+    return [sys.executable, "-m", "pip", action]
 
 
 def get_libraries(names: list[str] | None = None) -> list[str]:
@@ -90,7 +101,7 @@ def install_library(
         else:
             path_to_setup = os.path.join(path_to_setup, "gpu")
     try:
-        args = [*get_pip_command(use_uv), "install"]
+        args = get_pip_command("install", use_uv)
         if verbose:
             args.append("-v")
         if upgrade:
@@ -101,15 +112,22 @@ def install_library(
             args.append("--no-build-isolation")
         args.append(path_to_setup)
         subprocess.run(args, check=True)
+        if lib_name == "libkinect":
+            subprocess.run(
+                [sys.executable, "setup.py", "build_ext", "--inplace"],
+                cwd=path_to_setup,
+                check=True,
+            )
         logger.debug(f"Library `{lib_name}` installed successfully.")
     except subprocess.CalledProcessError:
         logger.error(f"Installation of `{lib_name}` failed.")
+        raise
 
 
 def uninstall_library(lib_name: str, use_uv: bool = False):
     pkg_name = _get_pkg_name(lib_name)
     try:
-        subprocess.run([*get_pip_command(use_uv), "uninstall", "-y", pkg_name])
+        subprocess.run([*get_pip_command("uninstall", use_uv), "-y", pkg_name])
         logger.debug(f"Library `{lib_name}` uninstalled successfully.")
     except subprocess.CalledProcessError:
         logger.error(f"Uninstallation of `{lib_name}` failed.")
@@ -200,6 +218,7 @@ def main():
                     build_isolation=args.build_isolation,
                 )
             elif args.command == "force-reinstall":
+                clean_library(lib, clean_jit=False)
                 install_library(
                     lib,
                     force=True,

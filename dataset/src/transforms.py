@@ -279,8 +279,17 @@ class Permute(Transform):
             data[key] = value[idx]
             if key == "points":
                 data["points.occ"] = data["points.occ"][idx]
-            elif f"{key}.normals" in data:
-                data[f"{key}.normals"] = data[f"{key}.normals"][idx]
+                if "points.labels" in data:
+                    data["points.labels"] = data["points.labels"][idx]
+            else:
+                if f"{key}.normals" in data:
+                    data[f"{key}.normals"] = data[f"{key}.normals"][idx]
+                if f"{key}.colors" in data:
+                    data[f"{key}.colors"] = data[f"{key}.colors"][idx]
+                if f"{key}.labels" in data:
+                    data[f"{key}.labels"] = data[f"{key}.labels"][idx]
+                if f"{key}.pixel_coords" in data:
+                    data[f"{key}.pixel_coords"] = data[f"{key}.pixel_coords"][idx]
         return data
 
 
@@ -304,8 +313,12 @@ class MinMaxNumPoints(Transform):
             depth = data.get("inputs.depth")
             colors = data.get("inputs.colors")
             labels = data.get("inputs.labels")
+            pixel_coords = data.get("inputs.pixel_coords")
             if isinstance(labels, np.ndarray) and len(labels) != len(inputs):
                 labels = None
+            if isinstance(pixel_coords, np.ndarray) and len(pixel_coords) != len(inputs):
+                data.pop("inputs.pixel_coords", None)
+                pixel_coords = None
 
             if "inputs" in self.min_num_points:
                 min_num_points = self.min_num_points["inputs"] or 0
@@ -325,6 +338,8 @@ class MinMaxNumPoints(Transform):
                         data["inputs.colors"] = np.zeros((min_num_points, 3))
                     if isinstance(labels, np.ndarray):
                         data["inputs.labels"] = np.zeros(min_num_points, dtype=np.int64)
+                    if pixel_coords is not None:
+                        data["inputs.pixel_coords"] = np.zeros((min_num_points, 2), dtype=pixel_coords.dtype)
                 elif len(inputs) < min_num_points:
                     indices = subsample_indices(inputs, min_num_points)
                     data["inputs"] = inputs[indices]
@@ -334,6 +349,8 @@ class MinMaxNumPoints(Transform):
                         data["inputs.colors"] = colors[indices]
                     if isinstance(labels, np.ndarray):
                         data["inputs.labels"] = labels[indices]
+                    if pixel_coords is not None:
+                        data["inputs.pixel_coords"] = pixel_coords[indices]
             if "inputs" in self.max_num_points:
                 max_num_points = self.max_num_points["inputs"]
                 if (
@@ -357,6 +374,8 @@ class MinMaxNumPoints(Transform):
                         data["inputs.colors"] = colors[indices]
                     if isinstance(labels, np.ndarray):
                         data["inputs.labels"] = labels[indices]
+                    if pixel_coords is not None:
+                        data["inputs.pixel_coords"] = pixel_coords[indices]
         elif key == "points" and key in data:
             points = data["points"]
             occ = data["points.occ"]
@@ -1312,12 +1331,18 @@ class AddGaussianNoise(Transform):
 class SubsamplePointcloud(Transform):
     @get_args()
     def __init__(
-        self, apply_to, num_samples: int | tuple[float, float] = 3000, fps: bool = False, cachable: bool = False
+        self,
+        apply_to,
+        num_samples: int | tuple[float, float] = 3000,
+        fps: bool = False,
+        seed_key: str | None = None,
+        cachable: bool = False,
     ):
         super().__init__(apply_to=apply_to, cachable=cachable)
 
         self.num_samples = num_samples
         self.fps = fps
+        self.seed_key = seed_key
         self.warn_num_samples = 0
 
         if fps:
@@ -1325,6 +1350,7 @@ class SubsamplePointcloud(Transform):
 
     def apply(self, data, key):
         num_samples = self.num_samples
+        rng = np.random.default_rng(int(data[self.seed_key])) if self.seed_key is not None else None
 
         if not num_samples:
             return data
@@ -1334,18 +1360,25 @@ class SubsamplePointcloud(Transform):
             normals = data.get("normals")
             colors = data.get("colors")
             labels = data.get("labels")
+            pixel_coords = data.get("pixel_coords")
         else:
             normals = data.get(f"{key}.normals")
             colors = data.get(f"{key}.colors")
             labels = data.get(f"{key}.labels")
+            pixel_coords = data.get(f"{key}.pixel_coords")
 
         if isinstance(labels, np.ndarray) and len(labels) != len(value):
             labels = None
 
-        if not isinstance(num_samples, (int, float)):
-            num_samples = int(np.random.uniform(*num_samples) * len(value))
+        if isinstance(pixel_coords, np.ndarray) and len(pixel_coords) != len(value):
+            data.pop("pixel_coords" if key is None else f"{key}.pixel_coords", None)
+            pixel_coords = None
 
-        if num_samples == len(value) or value.ndim != 2 or value.shape[1] != 3:
+        if not isinstance(num_samples, (int, float)):
+            uniform = np.random.uniform(*num_samples) if rng is None else rng.uniform(*num_samples)
+            num_samples = int(uniform * len(value))
+
+        if (num_samples == len(value) and rng is None) or value.ndim != 2 or value.shape[1] != 3:
             return data
 
         if len(value) < num_samples:
@@ -1371,7 +1404,11 @@ class SubsamplePointcloud(Transform):
             if isinstance(labels, np.ndarray):
                 colors = np.round(255 * np.asarray(pcd.colors)).astype(np.int64)
         else:
-            indices = subsample_indices(value, num_samples)
+            indices = (
+                subsample_indices(value, num_samples)
+                if rng is None
+                else rng.choice(len(value), size=num_samples, replace=len(value) < num_samples)
+            )
             value = value[indices]
             if normals is not None:
                 normals = normals[indices]
@@ -1379,6 +1416,8 @@ class SubsamplePointcloud(Transform):
                 colors = colors[indices]
             if isinstance(labels, np.ndarray):
                 labels = labels[indices]
+            if pixel_coords is not None:
+                pixel_coords = pixel_coords[indices]
 
         data[key] = value
         if key is None:
@@ -1388,6 +1427,8 @@ class SubsamplePointcloud(Transform):
                 data["colors"] = colors
             if isinstance(labels, np.ndarray):
                 data["labels"] = labels
+            if pixel_coords is not None:
+                data["pixel_coords"] = pixel_coords
         else:
             if normals is not None:
                 data[f"{key}.normals"] = normals
@@ -1395,6 +1436,8 @@ class SubsamplePointcloud(Transform):
                 data[f"{key}.colors"] = colors
             if isinstance(labels, np.ndarray):
                 data[f"{key}.labels"] = labels
+            if pixel_coords is not None:
+                data[f"{key}.pixel_coords"] = pixel_coords
 
         return data
 
@@ -1609,6 +1652,7 @@ class CropPointcloud(Transform):
         colors = data.get(f"{key}.colors")
         normals = data.get(f"{key}.normals")
         labels = data.get(f"{key}.labels")
+        pixel_coords = data.get(f"{key}.pixel_coords")
 
         bound = (0.5 + self.padding / 2.0) * self.scale_factor
 
@@ -1640,6 +1684,10 @@ class CropPointcloud(Transform):
             data[f"{key}.normals"] = normals[mask]
         if isinstance(labels, np.ndarray) and len(labels) == len(points):
             data[f"{key}.labels"] = labels[mask]
+        if isinstance(pixel_coords, np.ndarray) and len(pixel_coords) == len(points):
+            data[f"{key}.pixel_coords"] = pixel_coords[mask]
+        elif f"{key}.pixel_coords" in data:
+            data.pop(f"{key}.pixel_coords", None)
         return data
 
 
@@ -1744,6 +1792,7 @@ class RefinePose(Transform):
         max_rot_deg: float = 30.0,
         max_trans: float = 0.1,
         show: bool = False,
+        use_egl: bool = True,
     ):
         super().__init__()
         self.pose_key = pose_key
@@ -1764,8 +1813,9 @@ class RefinePose(Transform):
         self.max_rot_deg = max_rot_deg
         self.max_trans = max_trans
         self.show = show
+        self.use_egl = use_egl
 
-        if projective_icp and not show:
+        if projective_icp and use_egl:
             os.environ["PYOPENGL_PLATFORM"] = "egl"
 
     def apply(self, data: dict[str | None, Any], key: str | None):
@@ -1932,6 +1982,7 @@ class RefinePosePerInstance(Transform):
         max_rot_deg: float = 30.0,
         max_trans: float = 0.1,
         show: bool = False,
+        use_egl: bool = True,
     ):
         super().__init__()
         self.tgt_key = tgt_key
@@ -1949,8 +2000,9 @@ class RefinePosePerInstance(Transform):
         self.max_rot_deg = max_rot_deg
         self.max_trans = max_trans
         self.show = show
+        self.use_egl = use_egl
 
-        if not show:
+        if use_egl:
             os.environ["PYOPENGL_PLATFORM"] = "egl"
 
     def apply(self, data: dict[str | None, Any], key: str | None):
@@ -4484,7 +4536,8 @@ class Visualize(Transform):
                         mesh.compute_triangle_normals()
                 geometries.append(mesh)
             else:
-                logger.warning("Warning: No mesh data available for object", data["mesh.name"])
+                name = data.get("mesh.name", data.get("inputs.name", data.get("index", "<unknown>")))
+                logger.warning("Warning: No mesh data available for object %s", name)
 
         if self.show_pointcloud:
             if "pointcloud" in data:
@@ -4497,7 +4550,8 @@ class Visualize(Transform):
                     pcd = pcd.paint_uniform_color([0, 0, 0])
                 geometries.append(pcd)
             else:
-                logger.warning("Warning: No pointcloud data available for object", data["pointcloud.name"])
+                name = data.get("pointcloud.name", data.get("inputs.name", data.get("index", "<unknown>")))
+                logger.warning("Warning: No pointcloud data available for object %s", name)
 
         if self.show_pointcloud and self.show_points and "pointcloud.index" in data:
             points = data["points"]

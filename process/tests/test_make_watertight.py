@@ -58,6 +58,30 @@ def test_normalize_trimesh_returns_translation_and_scale() -> None:
     assert isinstance(scale, float)
 
 
+def test_normalize_inverse_restores_shifted_trimesh_bounds() -> None:
+    vertices = np.array(
+        [
+            [9.0, 20.0, -4.0],
+            [13.0, 20.0, -4.0],
+            [13.0, 22.0, -4.0],
+            [9.0, 22.0, -4.0],
+        ],
+        dtype=np.float32,
+    )
+    mesh = Trimesh(
+        vertices=vertices.copy(),
+        faces=np.array([[0, 1, 2], [0, 2, 3]], dtype=np.int64),
+        process=False,
+        validate=False,
+    )
+
+    normalized, translation, scale = mw.normalize(mesh, padding=0.1)
+    restored, _, _ = mw.normalize(normalized, translation=-translation * scale, scale=1 / scale)
+
+    assert isinstance(restored, Trimesh)
+    np.testing.assert_allclose(restored.bounds, np.array([vertices.min(axis=0), vertices.max(axis=0)]), atol=1e-6)
+
+
 def test_normalize_dict_uses_referenced_vertices() -> None:
     mesh = {
         "vertices": np.array(

@@ -46,6 +46,7 @@ load:
     - inputs.colors
     - inputs.normals
     - inputs.labels
+    - inputs.pixel_coords
     - inputs.width
     - inputs.height
     - inputs.intrinsic
@@ -60,6 +61,7 @@ load:
     - points.path
     - pointcloud
     - pointcloud.normals
+    - pointcloud.lengths
     - pointcloud.path
     - pointcloud.name
     - mesh

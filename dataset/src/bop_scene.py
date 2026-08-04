@@ -13,8 +13,8 @@ from easy_o3d.utils import convert_depth_image_to_point_cloud
 from PIL import Image
 from trimesh import Trimesh
 
+from utils import inv_trafo, setup_logger
 from utils import load_mesh as _load_mesh
-from utils import setup_logger
 
 from .graspnet import HAS_LIBMESH, GraspNetEval
 from .transforms import Transform, apply_transforms
@@ -166,6 +166,9 @@ class BOPSceneEval(GraspNetEval):
         dbscan_include_background: bool = False,
         dbscan_show: bool = False,
         one_view_per_scene: bool = False,
+        ann_id_mod: int | None = None,
+        ann_id_remainder: int | None = None,
+        use_scene_camera_world: bool = False,
         target_filename: str | None = "test_targets_bop19.json",
         transforms: Callable | list[Transform] | None = None,
     ) -> None:
@@ -217,6 +220,9 @@ class BOPSceneEval(GraspNetEval):
         self.dbscan_include_background = dbscan_include_background
         self.dbscan_show = dbscan_show
         self.one_view_per_scene = one_view_per_scene
+        self.ann_id_mod = ann_id_mod
+        self.ann_id_remainder = ann_id_remainder
+        self.use_scene_camera_world = use_scene_camera_world
         self.target_filename = target_filename
         self.transforms = transforms
         self._mesh_decimation_enabled = self.mesh_simplify_fraction is not None
@@ -260,6 +266,15 @@ class BOPSceneEval(GraspNetEval):
             raise ValueError(f"dbscan_min_points must be positive, got {self.dbscan_min_points}")
         if self.dbscan_keep not in {"non_noise", "largest"}:
             raise ValueError(f"dbscan_keep must be 'non_noise' or 'largest', got {self.dbscan_keep}")
+        if self.ann_id_mod is None and self.ann_id_remainder is not None:
+            raise ValueError("ann_id_remainder requires ann_id_mod")
+        if self.ann_id_mod is not None:
+            if self.ann_id_mod < 1:
+                raise ValueError(f"ann_id_mod must be positive, got {self.ann_id_mod}")
+            if self.ann_id_remainder is None:
+                raise ValueError("ann_id_mod requires ann_id_remainder")
+            if not 0 <= self.ann_id_remainder < self.ann_id_mod:
+                raise ValueError(f"ann_id_remainder must be in [0, {self.ann_id_mod}), got {self.ann_id_remainder}")
         if self.mesh_simplify_fraction is not None and importlib.util.find_spec("fast_simplification") is None:
             self._mesh_decimation_enabled = False
             self._mesh_decimation_disabled_reason = "missing optional dependency 'fast_simplification'"
@@ -368,6 +383,8 @@ class BOPSceneEval(GraspNetEval):
             ann_ids = sorted(p.stem for p in (scene_dir / self.depth_dir).glob("*.png"))
             if target_ann_ids is not None:
                 ann_ids = [ann_id for ann_id in ann_ids if ann_id in target_ann_ids.get(int(scene_dir.name), set())]
+            if self.ann_id_mod is not None:
+                ann_ids = [ann_id for ann_id in ann_ids if int(ann_id) % self.ann_id_mod == self.ann_id_remainder]
             if self.one_view_per_scene and ann_ids:
                 samples.append(_BOPSample(scene_dir=scene_dir, ann_id=ann_ids[len(ann_ids) // 2]))
             else:
@@ -511,12 +528,19 @@ class BOPSceneEval(GraspNetEval):
             item["inputs.instance_ids_2d"] = np.zeros((0,), dtype=np.int32)
 
     def _populate_camera_transforms(self, item: dict[str, Any], scene_dir: Path, frame_id: int) -> None:
-        # BOP does not provide scene-level camera poses. Keep all geometry in the
-        # OpenCV camera frame while preserving the GraspNet-style key contract.
         eye = np.eye(4, dtype=np.float32)
-        item["inputs.cam_to_world"] = eye
-        item["inputs.extrinsic_world"] = eye
-        item["inputs.extrinsic"] = eye
+        world_to_cam = eye
+        if self.use_scene_camera_world:
+            camera_data = self._load_scene_camera(scene_dir).get(str(frame_id), {})
+            if "cam_R_w2c" in camera_data and "cam_t_w2c" in camera_data:
+                world_to_cam = eye.copy()
+                world_to_cam[:3, :3] = np.asarray(camera_data["cam_R_w2c"], dtype=np.float32).reshape(3, 3)
+                world_to_cam[:3, 3] = (
+                    np.asarray(camera_data["cam_t_w2c"], dtype=np.float32).reshape(3) * self.mesh_scale
+                )
+        item["inputs.cam_to_world"] = cast(np.ndarray, inv_trafo(world_to_cam)).astype(np.float32)
+        item["inputs.extrinsic_world"] = world_to_cam
+        item["inputs.extrinsic"] = world_to_cam
 
     def _filter_background_points(self, item: dict[str, Any]) -> None:
         if (
@@ -531,7 +555,6 @@ class BOPSceneEval(GraspNetEval):
         pts = item["inputs"]
         lbl = item["inputs.labels"]
         if self.background_plane_threshold is not None:
-            background_plane_threshold = float(self.background_plane_threshold)
             background = pts[lbl == 0]
             item["inputs.background_plane_status"] = "not_enough_background"
             item["inputs.background_plane_num_background"] = len(background)
@@ -542,7 +565,7 @@ class BOPSceneEval(GraspNetEval):
                 return
             plane = _fit_plane_ransac(
                 background,
-                background_plane_threshold,
+                float(self.background_plane_threshold),
                 num_iterations=self.background_plane_iterations,
                 max_fit_points=self.background_plane_max_fit_points,
                 min_inliers=self.background_plane_min_inliers,
@@ -552,9 +575,9 @@ class BOPSceneEval(GraspNetEval):
                 return
             item["inputs.background_plane"] = plane
             distances = _plane_distances(pts, plane)
-            keep_mask = (lbl != 0) | (distances <= background_plane_threshold)
+            keep_mask = (lbl != 0) | (distances <= float(self.background_plane_threshold))
             background_distances = distances[lbl == 0]
-            background_keep = background_distances <= background_plane_threshold
+            background_keep = background_distances <= float(self.background_plane_threshold)
             item["inputs.background_plane_status"] = "ok"
             item["inputs.background_plane_num_background_kept"] = int(background_keep.sum())
             item["inputs.background_plane_inlier_ratio"] = (
@@ -568,10 +591,8 @@ class BOPSceneEval(GraspNetEval):
             self._apply_input_point_keep_mask(item, keep_mask)
             return
 
-        filter_background = self.filter_background
-        if filter_background is None:
-            return
-        z_thresh = float(filter_background)
+        assert self.filter_background is not None
+        z_thresh = float(self.filter_background)
         keep_mask = ~((lbl == 0) & ((pts[:, 2] > z_thresh) | (pts[:, 2] < -z_thresh)))
         self._apply_input_point_keep_mask(item, keep_mask)
 

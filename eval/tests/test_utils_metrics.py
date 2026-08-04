@@ -14,6 +14,44 @@ from omegaconf import OmegaConf
 from eval.src import utils as script
 
 
+def test_panoptic_quality_reports_empty_scene_false_positives() -> None:
+    metric = script.PanopticQuality3D(track_bin_iou=False)
+    empty = torch.empty((0, 4), dtype=torch.bool)
+    one_prediction = torch.tensor([[True, False, False, False]])
+    two_predictions = torch.tensor(
+        [
+            [True, False, False, False],
+            [False, True, False, False],
+        ]
+    )
+
+    metric.update(
+        [
+            {"masks": empty},
+            {"masks": one_prediction},
+            {"masks": two_predictions},
+        ],
+        [
+            {"masks": empty},
+            {"masks": empty},
+            {"masks": empty},
+        ],
+    )
+    result = metric.compute()
+
+    assert result["empty_detection_rate"] == pytest.approx(2 / 3)
+    assert result["empty_fp_per_frame"] == pytest.approx(1.0)
+
+
+def test_map_threshold_configuration_is_not_distributed_metric_state() -> None:
+    metric = script.MeanAveragePrecision3D()
+
+    assert "iou_thresholds" not in metric._defaults
+    assert "max_detection_thresholds" not in metric._defaults
+    assert "iou_thresholds" in dict(metric.named_buffers())
+    assert "max_detection_thresholds" in dict(metric.named_buffers())
+
+
 class _FakeTrimesh:
     instances: ClassVar[list[_FakeTrimesh]] = []
     invert_calls: ClassVar[int] = 0

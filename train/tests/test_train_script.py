@@ -52,7 +52,7 @@ class _FakeTrainer:
         self.logger = kwargs.get("logger")
         self.optimizers: list[Any] = []
         self.estimated_stepping_batches = 12
-        self.fit_calls: list[tuple[Any, Any, Any]] = []
+        self.fit_calls: list[tuple[Any, Any, Any, Any]] = []
         self.test_calls: list[tuple[Any, Any, Any, Any]] = []
         self.checkpoint_callback = next(
             (cb for cb in self.callbacks if hasattr(cb, "best_model_path")),
@@ -60,8 +60,14 @@ class _FakeTrainer:
         )
         self.__class__.instances.append(self)
 
-    def fit(self, model: Any, datamodule: Any, ckpt_path: Any = None) -> None:
-        self.fit_calls.append((model, datamodule, ckpt_path))
+    def fit(
+        self,
+        model: Any,
+        datamodule: Any,
+        ckpt_path: Any = None,
+        weights_only: Any = None,
+    ) -> None:
+        self.fit_calls.append((model, datamodule, ckpt_path, weights_only))
 
     def test(self, model: Any, datamodule: Any, ckpt_path: Any = None, verbose: Any = None) -> None:
         self.test_calls.append((model, datamodule, ckpt_path, verbose))
@@ -241,12 +247,14 @@ def test_run_smoke_exercises_training_flow(monkeypatch: pytest.MonkeyPatch, tmp_
 
     _FakeTrainer.instances.clear()
     _FakeTuner.instances.clear()
+    cfg = _base_cfg()
+    cfg.log.checkpoint_every_n_epochs = 1
 
     monkeypatch.setattr(train_script, "setup_config", lambda cfg, **_kwargs: cfg)
     monkeypatch.setattr(train_script, "suppress_known_optional_dependency_warnings", lambda: None)
     monkeypatch.setattr(train_script, "log_optional_dependency_summary", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(train_script, "resolve_save_dir", lambda _cfg: save_dir)
-    monkeypatch.setattr(train_script, "resolve_checkpoint_path", lambda _cfg: None)
+    monkeypatch.setattr(train_script, "resolve_checkpoint_path", lambda _cfg: best_ckpt)
     monkeypatch.setattr(train_script, "resolve_path", lambda value: Path(value))
     monkeypatch.setattr(
         train_script.HydraConfig, "get", lambda: SimpleNamespace(job=SimpleNamespace(config_name="smoke"))
@@ -292,11 +300,16 @@ def test_run_smoke_exercises_training_flow(monkeypatch: pytest.MonkeyPatch, tmp_
 
     monkeypatch.setattr(callbacks_module, "TestMeshesCallback", _FakeCallback)
 
-    score = train_script.run(_base_cfg())
+    score = train_script.run(cfg)
 
     assert score == pytest.approx(0.75)
     assert len(_FakeTrainer.instances) == 2
+    checkpoint_callback = next(
+        callback for callback in _FakeTrainer.instances[0].callbacks if isinstance(callback, _FakeModelCheckpoint)
+    )
+    assert checkpoint_callback.kwargs["every_n_epochs"] == 1
     assert len(_FakeTrainer.instances[0].fit_calls) == 1
+    assert _FakeTrainer.instances[0].fit_calls[0][2:] == (best_ckpt, False)
     assert len(_FakeTrainer.instances[1].test_calls) == 1
     assert _FakeTuner.instances[0].scale_batch_size_calls == 1
     assert _FakeTuner.instances[0].lr_find_calls == 1

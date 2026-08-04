@@ -6,6 +6,7 @@ Data processing and preprocessing scripts for shape completion. Includes waterti
 
 ```bash
 # As submodule
+git submodule add git@rmc-github.robotic.dlr.de:humt-ma/shape-completion-process.git process
 
 # Dependencies (from main repo)
 uv sync --extra process

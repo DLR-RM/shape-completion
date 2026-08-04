@@ -6,6 +6,7 @@ Inference scripts for running trained shape completion models on real-world poin
 
 ```bash
 # As submodule
+git submodule add git@rmc-github.robotic.dlr.de:humt-ma/shape-completion-inference.git inference
 
 # Dependencies (from main repo)
 uv sync --extra inference

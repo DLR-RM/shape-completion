@@ -6,7 +6,13 @@ from torch import nn
 
 from models import get_activation
 
-tcnn = pytest.importorskip("tinycudann")
+if not torch.cuda.is_available():
+    pytest.skip("CUDA not available", allow_module_level=True)
+
+try:
+    import tinycudann as tcnn
+except (ImportError, OSError) as error:
+    pytest.skip(f"compatible tinycudann not available: {error}", allow_module_level=True)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")

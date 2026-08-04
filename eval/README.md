@@ -6,6 +6,7 @@ Evaluation and mesh generation infrastructure for shape completion models. Provi
 
 ```bash
 # As submodule
+git submodule add git@rmc-github.robotic.dlr.de:humt-ma/shape-completion-eval.git eval
 
 # Dependencies (from main repo)
 uv sync --extra eval

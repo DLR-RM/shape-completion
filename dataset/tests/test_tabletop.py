@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any, cast
 
+import h5py
+import numpy as np
 import pytest
 
 from ..src import tabletop as tabletop_module
@@ -75,3 +78,22 @@ def test_tabletop_init_accepts_str_coco_root(tmp_path: Path, monkeypatch: pytest
     assert len(ds.coco_ds) == 1
     assert isinstance(ds.coco_ds[0].root, str)
     assert len(ds) == 1
+
+
+def test_tabletop_loads_stereo_depth_channel(tmp_path: Path):
+    expected = np.asarray([[0.5, 0.0], [0.7, 0.8]], dtype=np.float32)
+    metadata = {
+        "intrinsic": np.eye(3).tolist(),
+        "extrinsic": np.eye(4).tolist(),
+    }
+    with h5py.File(tmp_path / "0.hdf5", "w") as output:
+        output.create_dataset("data", data=json.dumps(metadata).encode("utf-8"))
+        output.create_dataset("stereo_depth", data=expected)
+
+    dataset = cast(Any, TableTop).__new__(TableTop)
+    dataset.load_depth = "stereo_depth"
+    dataset.load_normals = False
+
+    actual = dataset._load_data(tmp_path, 0)
+
+    np.testing.assert_array_equal(actual["depth"], expected)

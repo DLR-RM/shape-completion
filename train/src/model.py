@@ -246,6 +246,22 @@ class LitModel(pl.LightningModule):
             else:
                 raise NotImplementedError(f"Training for {self.model.name} not implemented yet")
 
+        if not torch.isfinite(loss).all():
+            scalar_logs = {}
+            for key, (value, _) in cast(dict[str, Any], self.model.get_log()).items():
+                if isinstance(value, (int, float)):
+                    scalar_logs[key] = value
+                elif isinstance(value, (np.ndarray, Tensor)) and np.prod(value.shape) == 1:
+                    scalar_logs[key] = float(torch.as_tensor(value).detach().cpu().item())
+            sample_index = batch.get("index")
+            if isinstance(sample_index, Tensor):
+                sample_index = sample_index.detach().cpu().reshape(-1).tolist()
+            raise ValueError(
+                "Loss is not finite before backward: "
+                f"loss={loss.detach().cpu()}, global_step={self.global_step}, "
+                f"batch_idx={batch_idx}, index={sample_index}, scalar_logs={scalar_logs}"
+            )
+
         batch_size = batch["inputs"].size(0)
         self.log("train/loss", loss, prog_bar=True, batch_size=batch_size)
         for key, value_level in cast(dict[str, Any], self.model.get_log()).items():

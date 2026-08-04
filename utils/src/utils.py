@@ -530,7 +530,7 @@ def to_tensor(
     return x if device is None else x.to(device)
 
 
-def to_numpy(x: int | float | str | np.ndarray | Tensor | list[str | np.ndarray | Tensor], squeeze: bool = True) -> Any:
+def to_numpy(x: Any, squeeze: bool = True) -> Any:
     if isinstance(x, list):
         return [to_numpy(item, squeeze=squeeze) for item in x]
     if not torch.is_tensor(x):

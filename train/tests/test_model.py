@@ -222,6 +222,28 @@ def test_training_and_validation_generic_paths_log_and_clear(monkeypatch: pytest
     lit.on_validation_end()
 
 
+def test_training_step_reports_nonfinite_loss_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    wrapped = _FakeWrappedModel()
+    lit = _make_lit_model(wrapped)
+    _attach_trainer(lit, global_step=7)
+    wrapped.log_values = {
+        "dice_loss": (torch.tensor(0.75), script.DEBUG_LEVEL_1),
+        "aux_loss": (torch.tensor(float("nan")), script.DEBUG_LEVEL_1),
+    }
+    monkeypatch.setattr(wrapped, "loss", lambda *args, **kwargs: torch.tensor(float("nan")))
+
+    batch = {"inputs": torch.zeros((1, 3)), "index": torch.tensor([1234])}
+    with pytest.raises(ValueError) as error:
+        lit.training_step(batch, 9)
+
+    message = str(error.value)
+    assert "global_step=7" in message
+    assert "batch_idx=9" in message
+    assert "index=[1234]" in message
+    assert "'dice_loss': 0.75" in message
+    assert "'aux_loss': nan" in message
+
+
 def test_backward_clipping_and_validation_end_guard(monkeypatch: pytest.MonkeyPatch) -> None:
     wrapped = _FakeWrappedModel()
     lit = _make_lit_model(wrapped, hypergradients=True, monitor="val/f1")

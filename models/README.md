@@ -6,6 +6,7 @@ Machine learning models for 3D shape completion. This submodule implements 30+ a
 
 ```bash
 # As submodule
+git submodule add git@rmc-github.robotic.dlr.de:humt-ma/shape-completion-models.git models
 
 # Dependencies (from main repo)
 uv sync --extra models

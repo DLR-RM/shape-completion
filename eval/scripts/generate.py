@@ -1,5 +1,7 @@
+import json
 import shutil
 from collections import defaultdict
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
 
@@ -35,15 +37,232 @@ from ..src.utils import overwrite_results
 logger = setup_logger(__name__)
 
 
+def _resolve_eval_resolution(cfg: DictConfig) -> int:
+    resolution = cfg.get("eval_resolution", None)
+    if resolution is None:
+        resolution = cfg.vis.resolution
+    return int(resolution)
+
+
 def _debug_level_1(message: str) -> None:
     debug_fn = getattr(logger, "debug_level_1", logger.debug)
     debug_fn(message)
+
+
+def _save_grid_meta(
+    save_dir: Path,
+    filename: str,
+    inst_idx: int,
+    generator: Generator,
+    gi: dict | np.ndarray | None,
+    threshold: float,
+    sdf: bool,
+) -> None:
+    inst_idx_int = int(inst_idx)
+    meta_path = save_dir / f"{filename}_mesh_{inst_idx_int}_meta.json"
+    if isinstance(gi, dict):
+        center_i = gi.get("center")
+        vs_i = gi.get("voxel_size", float(getattr(generator, "voxel_size", 0.01)))
+        vol = gi["grid"]
+        shape_i = vol.shape
+    else:
+        center_i = generator.center
+        vs_i = float(generator.voxel_size)
+        shape_i = tuple(int(s) for s in generator.grid_shape)
+    if center_i is None:
+        return
+    center_i = np.asarray(center_i, dtype=np.float64)
+    shape_arr = np.asarray(shape_i, dtype=np.float64)
+    total = shape_arr * vs_i
+    offset = (total - vs_i) / 2.0
+    origin = (center_i - offset).tolist()
+    iso_level = float(threshold if sdf else np.log(threshold / (1.0 - threshold)))
+    meta = {
+        "grid_origin": origin,
+        "grid_spacing": float(vs_i),
+        "grid_shape": [int(s) for s in shape_i],
+        "implicit_threshold": float(threshold),
+        "iso_level": iso_level,
+    }
+    meta_path.write_text(json.dumps(meta))
+
+
+def _save_surface_npz(save_dir: Path, filename: str, surface: dict[str, Any]) -> None:
+    inst_idx = int(surface.get("instance_idx", 0))
+    path = save_dir / f"{filename}_mesh_{inst_idx}.npz"
+    np.savez_compressed(
+        path,
+        points=np.asarray(surface["points"], dtype=np.float32),
+        normals=np.asarray(surface["normals"], dtype=np.float32),
+        instance_idx=np.asarray(inst_idx, dtype=np.int32),
+        grid_origin=np.asarray(surface.get("grid_origin", []), dtype=np.float32),
+        grid_spacing=np.asarray(surface.get("voxel_size", np.nan), dtype=np.float32),
+        grid_shape=np.asarray(surface.get("grid_shape", []), dtype=np.int32),
+        iso_level=np.asarray(
+            surface.get(
+                "iso_level",
+                float(surface.get("threshold", np.nan)),
+            ),
+            dtype=np.float32,
+        ),
+        norm_offset=np.asarray(surface.get("norm_offset", []), dtype=np.float32),
+        norm_scale=np.asarray(surface.get("norm_scale", np.nan), dtype=np.float32),
+        points_frame=np.asarray(str(surface.get("points_frame", "normalized"))),
+    )
+
+
+def _triangle_area(vertices: np.ndarray, faces: np.ndarray) -> float:
+    """Total surface area of a triangle mesh given as separate vertex/face arrays."""
+    faces = np.asarray(faces, dtype=np.int64)
+    if faces.size == 0:
+        return 0.0
+    tri = np.asarray(vertices, dtype=np.float64)[faces]
+    return float(0.5 * np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1).sum())
+
+
+def _area_shares(areas: list[float], counts: np.ndarray, budget: int) -> list[int]:
+    """Split budget over instances by mesh area, capped at the points each one holds.
+
+    Falls back to the incoming counts when no usable areas are available, which keeps
+    datasets without loaded meshes on the even split the dataset already produced.
+    """
+    weights = np.asarray(areas, dtype=np.float64) if len(areas) == len(counts) else np.array([])
+    if weights.size == 0 or not np.isfinite(weights).all() or weights.sum() <= 0.0:
+        return [int(c) for c in counts]
+    shares = np.floor(budget * weights / weights.sum()).astype(np.int64)
+    return [int(min(s, c)) for s, c in zip(shares, counts, strict=True)]
+
+
+def _save_gt_surfaces(
+    save_dir: Path, stem: str, item: Mapping[str, Any], areas: list[float], budget: int = 100_000
+) -> int:
+    """Write per-instance GT surface samples, returning how many instances they cover.
+
+    Points and normals are the dataset's posed copy of the precomputed watertight
+    samples, so nothing is sampled here. The matching GT mesh area rides along when
+    meshes were loaded, which lets the evaluator keep a merged scene area-uniform
+    instead of weighting every instance equally.
+    """
+    points = item.get("pointcloud")
+    normals = item.get("pointcloud.normals")
+    lengths = item.get("pointcloud.lengths")
+    if points is None or normals is None or lengths is None:
+        return 0
+
+    pts = np.asarray(to_numpy(points), dtype=np.float32).reshape(-1, 3)
+    nrm = np.asarray(to_numpy(normals), dtype=np.float32).reshape(-1, 3)
+    counts = np.asarray(lengths, dtype=np.int64).reshape(-1)
+    if int(counts.sum()) != len(pts) or len(nrm) != len(pts):
+        logger.warning(
+            f"GT surface split {int(counts.sum())} does not match {len(pts)} points / "
+            f"{len(nrm)} normals, skipping surface export"
+        )
+        return 0
+
+    # Keep each instance to its area share of the budget, so a merged scene stays
+    # area-uniform at the same total point count an evenly-split export would use.
+    shares = _area_shares(areas, counts, budget)
+
+    covered = 0
+    rng = np.random.default_rng(0)
+    offsets = np.cumsum(np.concatenate([[0], counts]))
+    for g in range(len(counts)):
+        if counts[g] < 10:  # placeholder cloud standing in for a zero-area instance
+            continue
+        covered += 1
+        path = save_dir / f"{stem}_gtsurf_{g}.npz"
+        if path.exists():
+            continue
+        inst = slice(int(offsets[g]), int(offsets[g + 1]))
+        inst_pts, inst_nrm = pts[inst], nrm[inst]
+        if shares[g] < len(inst_pts):
+            keep = rng.choice(len(inst_pts), shares[g], replace=False)
+            inst_pts, inst_nrm = inst_pts[keep], inst_nrm[keep]
+        np.savez_compressed(
+            path,
+            points=inst_pts,
+            normals=inst_nrm,
+            instance_idx=np.asarray(g, dtype=np.int32),
+            area=np.asarray(areas[g] if g < len(areas) else np.nan, dtype=np.float64),
+        )
+    return covered
+
+
+def _is_surface_grid(grid: Any) -> bool:
+    return isinstance(grid, list) and all(isinstance(g, dict) and "points" in g and "normals" in g for g in grid)
+
+
+def _unbatch_array(value: Any) -> np.ndarray:
+    array = to_numpy(value)
+    array = np.asarray(array)
+    while array.ndim > 0 and array.shape[0] == 1:
+        array = np.squeeze(array, axis=0)
+    return array
+
+
+def _denormalize_surface_grid(grid: list[dict[str, Any]], item: dict[str, Any]) -> list[dict[str, Any]]:
+    if "inputs.norm_offset" not in item:
+        raise ValueError("Cannot save streamed surface in original frame: missing inputs.norm_offset")
+
+    offset = _unbatch_array(item["inputs.norm_offset"]).astype(np.float32)
+    scale_arr = (
+        _unbatch_array(item["inputs.norm_scale"]).astype(np.float32).reshape(-1)
+        if "inputs.norm_scale" in item
+        else np.asarray([1.0], dtype=np.float32)
+    )
+    if offset.shape != (3,) or scale_arr.size == 0:
+        raise ValueError(
+            f"Invalid normalization metadata for streamed surface: offset={offset.shape}, scale={scale_arr.shape}"
+        )
+    scale = float(scale_arr[0])
+
+    denorm_grid: list[dict[str, Any]] = []
+    for surface in grid:
+        denorm = dict(surface)
+        denorm["points"] = np.asarray(surface["points"], dtype=np.float32) * scale + offset
+        if "grid_origin" in surface:
+            denorm["grid_origin"] = np.asarray(surface["grid_origin"], dtype=np.float32) * scale + offset
+        if "voxel_size" in surface:
+            denorm["voxel_size"] = float(surface["voxel_size"]) * scale
+        denorm["norm_offset"] = offset
+        denorm["norm_scale"] = np.asarray(scale, dtype=np.float32)
+        denorm["points_frame"] = "original"
+        denorm_grid.append(denorm)
+    return denorm_grid
 
 
 def _to_int(value: Any) -> int:
     if isinstance(value, np.ndarray):
         return int(value.item())
     return int(value)
+
+
+def _batch_item_value(value: Any, index: int, batch_size: int) -> Any:
+    if torch.is_tensor(value):
+        return to_numpy(value[index : index + 1])
+    if isinstance(value, Mapping):
+        if batch_size == 1:
+            return value
+        return {key: _mapping_batch_item(item, index, batch_size) for key, item in value.items()}
+    if isinstance(value, np.ndarray):
+        if value.ndim > 0 and len(value) == batch_size:
+            return to_numpy(value[index : index + 1])
+        return to_numpy(value)
+    if isinstance(value, list) and len(value) == batch_size:
+        return [to_numpy(value[index])]
+    if isinstance(value, tuple) and len(value) == batch_size:
+        return (to_numpy(value[index]),)
+    return to_numpy(value)
+
+
+def _mapping_batch_item(value: Any, index: int, batch_size: int) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _mapping_batch_item(item, index, batch_size) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_mapping_batch_item(item, index, batch_size) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_mapping_batch_item(item, index, batch_size) for item in value)
+    return _batch_item_value(value, index, batch_size)
 
 
 def _shorten_path_filename(path: Path, max_name_len: int = 200) -> Path:
@@ -125,37 +344,37 @@ def process_item(
     if isinstance(obj_category, (str, int)) and isinstance(category_name, str):
         category_vis_dir = vis_dir / "_".join([str(obj_category), category_name])
         if not category_vis_dir.is_dir():
-            category_vis_dir.mkdir()
+            category_vis_dir.mkdir(parents=True)
     elif isinstance(obj_category, list) and isinstance(category_name, list):
         category_vis_dir = []
         for cat, name in zip(obj_category, category_name, strict=False):
-            cat_dir = vis_dir / "_".join([cat, name])
+            cat_dir = vis_dir / "_".join([str(cat), str(name)])
             if not cat_dir.is_dir():
-                cat_dir.mkdir()
+                cat_dir.mkdir(parents=True)
             category_vis_dir.append(cat_dir)
 
     if isinstance(obj_category, (str, int)):
         category_inputs_dir = inputs_dir / str(obj_category)
         if not category_inputs_dir.is_dir():
-            category_inputs_dir.mkdir()
+            category_inputs_dir.mkdir(parents=True)
     elif isinstance(obj_category, list):
         category_inputs_dir = []
         for cat in obj_category:
-            cat_dir = inputs_dir / cat
+            cat_dir = inputs_dir / str(cat)
             if not cat_dir.is_dir():
-                cat_dir.mkdir()
+                cat_dir.mkdir(parents=True)
             category_inputs_dir.append(cat_dir)
 
     if isinstance(obj_category, (str, int)):
         category_meshes_dir = meshes_dir / str(obj_category)
         if not category_meshes_dir.is_dir():
-            category_meshes_dir.mkdir()
+            category_meshes_dir.mkdir(parents=True)
     elif isinstance(obj_category, list):
         category_meshes_dir = []
         for cat in obj_category:
-            cat_dir = meshes_dir / cat
+            cat_dir = meshes_dir / str(cat)
             if not cat_dir.is_dir():
-                cat_dir.mkdir()
+                cat_dir.mkdir(parents=True)
             category_meshes_dir.append(cat_dir)
 
     out_dict = dict()
@@ -184,9 +403,73 @@ def process_item(
         save_dir = resolve_save_dir(cfg) / "data" / cfg.test.split
         save_data = SaveData(save_dir)
 
-    grid = cast(np.ndarray | dict[int, np.ndarray] | list[np.ndarray], item["grid"])
-    mesh = generator.extract_meshes(grid=grid, feature=feature, item=cast(dict[str, Any], item))
-    if isinstance(mesh, list):
+        gt_meshes_list = item.get("mesh")
+        gt_v = item.get("mesh.vertices")
+        gt_f = item.get("mesh.triangles")
+        gt_nv = item.get("mesh.num_vertices")
+        gt_nf = item.get("mesh.num_triangles")
+        # TableTop stores the per-instance split as a single "mesh.lengths" dict,
+        # where BOP and GraspNet use separate num_vertices / num_triangles keys.
+        gt_lengths = item.get("mesh.lengths")
+        if gt_nv is None and isinstance(gt_lengths, dict):
+            gt_nv = gt_lengths.get("vertices")
+            gt_nf = gt_lengths.get("triangles")
+
+        gt_objs: list[tuple[np.ndarray, np.ndarray]] = []
+        if isinstance(gt_meshes_list, list) and gt_meshes_list and hasattr(gt_meshes_list[0], "vertices"):
+            for tm in gt_meshes_list:
+                gt_objs.append((np.asarray(tm.vertices), np.asarray(tm.faces)))
+        elif gt_v is not None and gt_f is not None and gt_nv is not None:
+            gt_v_np = gt_v.numpy() if torch.is_tensor(gt_v) else np.asarray(gt_v)
+            gt_f_np = gt_f.numpy() if torch.is_tensor(gt_f) else np.asarray(gt_f)
+            gt_nv_np = gt_nv.numpy() if torch.is_tensor(gt_nv) else np.asarray(gt_nv)
+            gt_nf_np = gt_nf.numpy() if torch.is_tensor(gt_nf) else np.asarray(gt_nf)
+            gt_nv_np = gt_nv_np.astype(int).reshape(-1)
+            gt_nf_np = gt_nf_np.astype(int).reshape(-1)
+            v_off = np.cumsum(np.concatenate([[0], gt_nv_np]))
+            f_off = np.cumsum(np.concatenate([[0], gt_nf_np]))
+            for g in range(int(gt_nv_np.shape[0])):
+                vertices = gt_v_np[v_off[g] : v_off[g + 1]]
+                faces = gt_f_np[f_off[g] : f_off[g + 1]] - v_off[g]
+                gt_objs.append((vertices, faces))
+
+        # The watertight meshes ship with precomputed surface samples
+        # (samples/surface.npz) that the dataset poses into the scene alongside the
+        # meshes, so exporting those per instance saves both the OBJ dump here and
+        # the re-sampling pass in the evaluator. Falling back to the OBJ dump keeps
+        # datasets without precomputed samples working.
+        stem = f"{str(index).zfill(8)}"
+        gt_areas = [_triangle_area(gv, gf) for gv, gf in gt_objs]
+        gt_surfaces = _save_gt_surfaces(save_data.output_dir, stem, cast(Mapping[str, Any], item), gt_areas)
+
+        if gt_objs and not gt_surfaces:
+            for g, (gv, gf) in enumerate(gt_objs):
+                if not (save_data.output_dir / f"{stem}_mesh_{g}.obj").exists():
+                    save_data._save_mesh(
+                        {"mesh.vertices": gv, "mesh.triangles": gf},
+                        filename=stem,
+                        index=g,
+                        suffix=".obj",
+                    )
+
+    grid = cast(np.ndarray | dict[int, np.ndarray] | list[np.ndarray] | list[dict[str, Any]], item["grid"])
+    if isinstance(grid, list) and len(grid) == 1 and _is_surface_grid(grid[0]):
+        grid = grid[0]
+    if _is_surface_grid(grid):
+        if bool(cfg.get("eval_surface_original_frame", False)):
+            grid = _denormalize_surface_grid(cast(list[dict[str, Any]], grid), cast(dict[str, Any], item))
+        if cfg.vis.save:
+            filename = str(index).zfill(8) + "_pred"
+            for surface in cast(list[dict[str, Any]], grid):
+                _save_surface_npz(save_data.output_dir, filename, surface)
+        out_dict["surface"] = []
+        mesh = None
+    else:
+        mesh_grid = cast(np.ndarray | dict[int, np.ndarray] | list[np.ndarray] | list[dict[str, Any]], grid)
+        mesh = generator.extract_meshes(grid=mesh_grid, feature=feature, item=cast(dict[str, Any], item))
+    if mesh is None:
+        pass
+    elif isinstance(mesh, list):
         out_dict["mesh"] = list()
         for i, m in enumerate(mesh):
             # Use aligned instance index (from GT-aligned Hungarian matching) when
@@ -220,6 +503,20 @@ def process_item(
                 if colors is not None:
                     mesh_dict["mesh.colors"] = cast(Any, colors[:, :3] / 255.0)
                 save_data._save_mesh(mesh_dict, filename, index=inst_idx, suffix=".obj")
+                gi = grid[i] if isinstance(grid, list) and i < len(grid) else None
+                vol = gi["grid"] if isinstance(gi, dict) else (gi if isinstance(gi, np.ndarray) else None)
+                if vol is not None:
+                    vol_zxy = np.transpose(vol, (2, 1, 0)).astype(np.float32)
+                    np.save(save_data.output_dir / f"{filename}_mesh_{inst_idx}.npy", vol_zxy)
+                    _save_grid_meta(
+                        save_data.output_dir,
+                        filename,
+                        inst_idx,
+                        generator,
+                        gi,
+                        float(cfg.implicit.threshold),
+                        bool(cfg.implicit.sdf),
+                    )
     else:
         mesh_path = category_meshes_dir / f"{obj_name}.ply"
         mesh_path = _shorten_path_filename(mesh_path)
@@ -242,10 +539,23 @@ def process_item(
             if colors is not None:
                 mesh_dict["mesh.colors"] = cast(Any, colors[:, :3] / 255.0)
             save_data._save_mesh(mesh_dict, filename, suffix=".obj")
+            if isinstance(grid, np.ndarray):
+                vol_zxy = np.transpose(grid, (2, 1, 0)).astype(np.float32)
+                np.save(save_data.output_dir / f"{filename}_mesh.npy", vol_zxy)
+                _save_grid_meta(
+                    save_data.output_dir,
+                    filename,
+                    0,
+                    generator,
+                    None,
+                    float(cfg.implicit.threshold),
+                    bool(cfg.implicit.sdf),
+                )
 
     if cfg.inputs.type == "pointcloud" or (cfg.inputs.type in ["depth", "kinect", "rgbd"] and cfg.inputs.project):
         if isinstance(obj_name, list):
-            inputs_path = category_inputs_dir[0] / f"{obj_name[0]}.ply"
+            inputs_parent = category_inputs_dir[0] if isinstance(category_inputs_dir, list) else category_inputs_dir
+            inputs_path = inputs_parent / f"{obj_name[0]}.ply"
         else:
             inputs_path = category_inputs_dir / f"{obj_name}.ply"
         inputs_path = _shorten_path_filename(inputs_path)
@@ -260,7 +570,10 @@ def process_item(
         trimesh.PointCloud(points).export(inputs_path)
         out_dict["inputs"] = inputs_path
     else:
-        out_dict["inputs"] = Path(str(item["inputs.path"]))
+        inputs_path = item["inputs.path"]
+        out_dict["inputs"] = (
+            [Path(str(p)) for p in inputs_path] if isinstance(inputs_path, list) else Path(str(inputs_path))
+        )
 
     if isinstance(obj_category, str):
         obj_instances = obj_counter[obj_category]
@@ -367,7 +680,7 @@ def main(cfg: DictConfig):
         model = patch_attention(model, mode="math" if cfg.vis.refinement_steps else None, backend="torch")
     fabric = lightning.Fabric(precision=cfg[split].precision)
 
-    resolution = cfg.vis.resolution
+    resolution = _resolve_eval_resolution(cfg)
     upsampling_steps = cfg.vis.upsampling_steps
     if upsampling_steps is None:
         upsampling_steps = 0
@@ -402,6 +715,10 @@ def main(cfg: DictConfig):
         simplify=cfg.vis.simplify,
         sdf=cfg.implicit.sdf,
         bounds=cfg.norm.bounds,
+        surface_refinement_steps=int(cfg.vis.get("surface_refinement_steps", 0) or 0),
+        surface_refinement_mode=str(cfg.vis.get("surface_refinement_mode", "secant")),
+        surface_newton_steps=int(cfg.vis.get("surface_newton_steps", 0) or 0),
+        surface_normal_mode=str(cfg.vis.get("surface_normal_mode", "volume")),
     )
 
     obj_counter = defaultdict(int)
@@ -410,7 +727,11 @@ def main(cfg: DictConfig):
         f"(res={resolution}, "
         f"up_steps={upsampling_steps}, "
         f"points_bs={points_batch_size}, "
-        f"thresh={cfg.implicit.threshold})"
+        f"thresh={cfg.implicit.threshold}, "
+        f"surface_refine={int(cfg.vis.get('surface_refinement_steps', 0) or 0)}"
+        f"/{cfg.vis.get('surface_refinement_mode', 'secant')!s}, "
+        f"surface_newton={int(cfg.vis.get('surface_newton_steps', 0) or 0)}, "
+        f"surface_normals={cfg.vis.get('surface_normal_mode', 'volume')!s})"
     )
     desc += f"{f' {cfg.vis.num_instances} class instances' if cfg.vis.num_instances else ''}"
     for batch_idx, batch in enumerate(tqdm(loader, desc=desc, disable=not cfg.log.progress)):
@@ -440,6 +761,16 @@ def main(cfg: DictConfig):
         if cfg.vis.num_instances and all(obj_counter[c] >= cfg.vis.num_instances for c in set(batch["category.id"])):
             continue
 
+        # Resume support: with test.overwrite=False and vis.save, skip a frame whose predicted
+        # surface .npz already exist on disk, so a killed run continues instead of restarting from
+        # frame 0. Only for batch_size==1 (each frame is a single deterministic index). Delete the
+        # highest-index frame before resuming in case it was written partially when the run died.
+        if cfg.vis.save and not cfg.test.overwrite and _to_int(len(batch["index"])) == 1:
+            resume_dir = resolve_save_dir(cfg) / "data" / cfg.test.split
+            resume_stem = str(_to_int(batch["index"][0])).zfill(8)
+            if list(resume_dir.glob(f"{resume_stem}_pred_mesh_*.npz")):
+                continue
+
         data = {str(k): to_tensor(v, unsqueeze=False, device=device) for k, v in batch.items()}
         with fabric.autocast():
             feature = None
@@ -450,11 +781,19 @@ def main(cfg: DictConfig):
                     data["inputs.depth"] = data["inputs.depth"].repeat(sample, 1, 1)
             align_to_gt = bool(cfg.get("align_to_gt", False))
             if cfg.predict.instances:
-                grid = generator.generate_grid_per_instance(
-                    cast(dict[str, Any], data),
-                    align_to_gt=align_to_gt,  # InstSeg
-                    show=cfg.vis.show,
-                )
+                if bool(cfg.get("eval_stream_surface", False)):
+                    grid = generator.generate_surface_per_instance_streaming(
+                        cast(dict[str, Any], data),
+                        align_to_gt=align_to_gt,
+                        show=cfg.vis.show,
+                    )
+                else:
+                    grid = generator.generate_grid_per_instance(
+                        cast(dict[str, Any], data),
+                        align_to_gt=align_to_gt,  # InstSeg
+                        show=cfg.vis.show,
+                        full_grid=bool(cfg.get("eval_global_grid", False)),
+                    )
             else:
                 grid, _points, feature = generator.generate_grid(
                     cast(dict[str, Any], data),
@@ -473,7 +812,8 @@ def main(cfg: DictConfig):
             leave=False,
             disable=len(batch["index"]) == 1 or not cfg.log.progress,
         ):
-            item = {str(k): to_numpy(v[i]) for k, v in batch.items()}
+            batch_size = _to_int(len(batch["index"]))
+            item = {str(k): _batch_item_value(v, i, batch_size) for k, v in batch.items()}
             process_item(
                 cfg,
                 cast(dict[str, Any], item),

@@ -58,7 +58,8 @@ def test_attention():
     q = torch.randn(2, 128, 32, device="cuda")
 
     backends = ["einops", "torch", "xformers"] if XFORMERS_EXISTS else ["einops", "torch"]
-    with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+    autocast_dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
+    with torch.autocast(device_type="cuda", dtype=autocast_dtype):
         start = time.perf_counter()
         for _ in range(100):
             y2 = attn2(q)

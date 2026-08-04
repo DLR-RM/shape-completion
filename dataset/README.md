@@ -6,6 +6,7 @@ Dataset loading and transformation infrastructure for 3D shape completion. Provi
 
 ```bash
 # As submodule
+git submodule add git@rmc-github.robotic.dlr.de:humt-ma/shape-completion-dataset.git dataset
 
 # Dependencies (from main repo)
 uv sync --extra dataset

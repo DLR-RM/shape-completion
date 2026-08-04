@@ -28,6 +28,7 @@ def test_get_mesh():
     assert isinstance(mesh, Trimesh)
 
 
+@pytest.mark.renderer
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_get_image():
     vis = Visualizer()

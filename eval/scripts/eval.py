@@ -22,6 +22,7 @@ from models import (
     DiffusionModel,
     DinoInstSeg,
     DinoInstSeg3D,
+    DinoInstSegRGBD3D,
     GridDiffusionModel,
     InstOccPipeline,
     classification_loss,
@@ -394,7 +395,7 @@ def main(cfg: DictConfig):
                     logits, loss = model_any.predict(data, return_loss=True, points_batch_size=cfg.vis.num_query_points)
                     batch["logits"] = logits
                     batch["loss"] = loss
-                elif isinstance(model_any, (DinoInstSeg, DinoInstSeg3D, InstOccPipeline)):
+                elif isinstance(model_any, (DinoInstSeg, DinoInstSeg3D, DinoInstSegRGBD3D, InstOccPipeline)):
                     batch.update(model_any(**data, points_batch_size=cfg.vis.num_query_points))
                 else:
                     logits = model_any.predict(
@@ -443,6 +444,7 @@ def main(cfg: DictConfig):
                     sample=cfg.get("sample", False),  # VAE
                     align_to_gt=cfg.get("align_to_gt", False),
                     mask_iou=cfg.get("mask_iou", False),  # InstSeg
+                    oracle_score=cfg.get("oracle_score", None),
                     show=cfg.vis.show,
                 ),
             )

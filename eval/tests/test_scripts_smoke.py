@@ -66,6 +66,7 @@ class _FakeScriptDataset(Dataset[dict[str, Any]]):
 
 class _FakeGenerator:
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        self.resolution = _kwargs.get("resolution")
         self.query_points = torch.zeros((1, 3))
         self.estimate_normals = False
 
@@ -187,6 +188,21 @@ def _generate_cfg() -> DictConfig:
             "log": {"name": "generate-smoke", "progress": False, "verbose": 0},
         }
     )
+
+
+def test_generate_eval_resolution_overrides_vis_resolution() -> None:
+    cfg = _generate_cfg()
+    cfg.vis.resolution = 128
+    cfg.eval_resolution = 512
+
+    assert generate_script._resolve_eval_resolution(cfg) == 512
+
+
+def test_generate_eval_resolution_defaults_to_vis_resolution() -> None:
+    cfg = _generate_cfg()
+    cfg.vis.resolution = 256
+
+    assert generate_script._resolve_eval_resolution(cfg) == 256
 
 
 def _process_cfg() -> DictConfig:
@@ -312,6 +328,7 @@ def test_generate_main_smoke(monkeypatch: Any, tmp_path: Path) -> None:
     input_path.write_text("ply")
     dataset = _FakeScriptDataset(input_path)
     process_calls: list[int] = []
+    generator_resolutions: list[int] = []
 
     def _fake_process_item(
         _cfg: DictConfig,
@@ -325,6 +342,7 @@ def test_generate_main_smoke(monkeypatch: Any, tmp_path: Path) -> None:
         _inputs_dir: Path,
     ) -> None:
         process_calls.append(int(np.asarray(item["index"]).item()))
+        generator_resolutions.append(int(_generator.resolution))
 
     monkeypatch.setattr(generate_script, "setup_config", lambda cfg: cfg)
     monkeypatch.setattr(generate_script, "suppress_known_optional_dependency_warnings", lambda: None)
@@ -349,6 +367,7 @@ def test_generate_main_smoke(monkeypatch: Any, tmp_path: Path) -> None:
     generate_script.main.__wrapped__(_generate_cfg())
 
     assert process_calls == [0]
+    assert generator_resolutions == [8]
     assert (tmp_path / "generation" / "test" / "meshes").is_dir()
     assert (tmp_path / "generation" / "test" / "vis").is_dir()
     assert (tmp_path / "generation" / "test" / "inputs").is_dir()
@@ -430,6 +449,41 @@ def test_generate_process_item_list_category(monkeypatch: Any, tmp_path: Path) -
     assert (meshes_dir / "002" / "obj2.ply").is_file()
     assert (vis_dir / "001_cat1" / "00_mesh.ply").is_file()
     assert any((vis_dir / "002_cat2").glob("*.ply"))
+
+
+def test_generate_process_item_mixed_scalar_category_and_list_name(monkeypatch: Any, tmp_path: Path) -> None:
+    cfg = _process_cfg()
+    input_path = tmp_path / "input.ply"
+    input_path.write_text("ply")
+
+    dataset = _FakeScriptDataset(input_path)
+    monkeypatch.setattr(generate_script, "CocoInstanceSegmentation", _FakeScriptDataset)
+    monkeypatch.setattr(generate_script, "save_mesh", lambda path, *_args: Path(path).write_text("mesh"))
+
+    vis_dir = tmp_path / "vis"
+    meshes_dir = tmp_path / "meshes"
+    inputs_dir = tmp_path / "inputs"
+    vis_dir.mkdir()
+    meshes_dir.mkdir()
+    inputs_dir.mkdir()
+
+    item: dict[str, Any] = {
+        "index": 0,
+        "category.name": "scene_0160",
+        "category.id": 0,
+        "inputs.name": ["0000.png"],
+        "inputs.path": str(input_path),
+        "grid": np.zeros((2, 2, 2), dtype=np.float32),
+        "inputs.inv_extrinsic": np.eye(4),
+    }
+    obj_counter: defaultdict[str, int] = defaultdict(int)
+    generator = _FakeProcessGenerator(_FakeMesh())
+
+    generate_script.process_item(
+        cfg, item, None, dataset, cast(Any, generator), obj_counter, vis_dir, meshes_dir, inputs_dir
+    )
+
+    assert (vis_dir / "0_scene_0160" / "00_inputs.ply").is_file()
 
 
 def test_mesh_eval_main_smoke(monkeypatch: Any, tmp_path: Path) -> None:

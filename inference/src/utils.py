@@ -71,7 +71,8 @@ def unproject_kinect_depth(
     """
 
     d = disparity_precision * (disparity_offset - depth_raw)
-    depth = baseline * fx / d
+    depth = np.zeros_like(d, dtype=np.result_type(d, np.float64))
+    np.divide(baseline * fx, d, out=depth, where=d != 0)
 
     depth[(depth < 0) | (depth_raw == invalid_depth_value)] = 0
     z = np.nan_to_num(depth, nan=0, posinf=0, neginf=0)

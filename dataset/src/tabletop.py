@@ -77,7 +77,7 @@ class TableTop(VisionDataset):
         val_ann_file: str = "coco_annotations.json",
         test_ann_file: str = "coco_annotations.json",
         load_color: bool = True,
-        load_depth: bool | Literal["kinect", "kinect_sim"] = True,
+        load_depth: bool | Literal["kinect", "kinect_sim", "stereo_depth"] = True,
         load_normals: bool = True,
         apply_filter: Literal["edge"] | None = None,
         project: bool = True,
@@ -99,6 +99,7 @@ class TableTop(VisionDataset):
         apply_pose: bool = True,
         from_hdf5: bool = False,
         cache_points: bool = False,
+        max_pcd_points: int = 100_000,
         transforms: Callable[..., Any] | None = None,
         transforms_3d: Transform | list[Transform] | None = None,
     ):
@@ -168,6 +169,7 @@ class TableTop(VisionDataset):
         self.stack_2d = stack_2d
         self.from_hdf5 = from_hdf5
         self.cache_points = cache_points
+        self.max_pcd_points = max_pcd_points
         self.apply_pose = apply_pose
         self.transforms_3d = transforms_3d
 
@@ -247,6 +249,8 @@ class TableTop(VisionDataset):
                     data["depth"] = np.asarray(hdf5_file["kinect"], dtype=np.float32)
                 elif self.load_depth == "kinect_sim":
                     data["depth"] = np.asarray(hdf5_file["kinect_sim"], dtype=np.float32)
+                elif self.load_depth == "stereo_depth":
+                    data["depth"] = np.asarray(hdf5_file["stereo_depth"], dtype=np.float32)
                 else:
                     data["depth"] = np.asarray(hdf5_file["depth"], dtype=np.float32)
             if self.load_normals:
@@ -598,6 +602,7 @@ class TableTop(VisionDataset):
                     u, v, _ = _points_to_uv(projected_points, intrinsic[0].numpy(), extrinsic)
                     u = np.clip(np.asarray(u).astype(np.int64, copy=False), 0, width - 1)
                     v = np.clip(np.asarray(v).astype(np.int64, copy=False), 0, height - 1)
+                    item["inputs.pixel_coords"] = np.stack([v, u], axis=-1)
                     if self.load_color:
                         colors = item["inputs.image"].permute(1, 2, 0).numpy()
                         item["inputs.colors"] = colors[v, u]
@@ -646,6 +651,8 @@ class TableTop(VisionDataset):
 
                     start_index = time.perf_counter()
                     item["inputs"] = projected_points[idx]
+                    if "inputs.pixel_coords" in item:
+                        item["inputs.pixel_coords"] = item["inputs.pixel_coords"][idx]
                     if self.load_color:
                         c = item["inputs.colors"]
                         item["inputs.colors"] = c[idx]
@@ -839,7 +846,17 @@ class TableTop(VisionDataset):
                     # if self.collate_3d == "cat":
                     pcd_cat = np.concatenate([p[0] for p in pcds])
                     # Subsample and keep per-instance counts after subsampling for exact split later
-                    pcd_idx = subsample_indices(pcd_cat, 100_000)
+                    # Subsampling the concatenation draws evenly across instances, so a
+                    # scene budget of N leaves each of k objects with N/k points however
+                    # large it is. Raise max_pcd_points when a consumer needs to weight
+                    # instances by area; the per-object clouds hold 100k points each.
+                    # Keeping everything is explicit here because subsample_indices
+                    # resamples with replacement once the budget exceeds what it is given.
+                    pcd_idx = (
+                        np.arange(len(pcd_cat))
+                        if self.max_pcd_points >= len(pcd_cat)
+                        else subsample_indices(pcd_cat, self.max_pcd_points)
+                    )
                     pcd_idx = np.sort(pcd_idx)
                     # Build instance id map for the concatenated array
                     inst_lengths = [len(p[0]) for p in pcds]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, cast
 
@@ -30,6 +31,7 @@ from ..src.transforms import (
     RandomApply,
     RandomChoice,
     RefinePose,
+    RefinePosePerInstance,
     Render,
     RenderDepthMaps,
     RotateMesh,
@@ -39,6 +41,7 @@ from ..src.transforms import (
     ShadingImageFromNormals,
     SphereCutPointcloud,
     SphereMovePointcloud,
+    SubsamplePointcloud,
     SubsamplePoints,
     Transform,
     Translate,
@@ -206,6 +209,72 @@ def test_min_max_num_points_handles_empty_and_subsample(monkeypatch: pytest.Monk
     assert out["inputs.colors"].shape == (3, 3)
     np.testing.assert_array_equal(out["points"], expected_points)
     np.testing.assert_array_equal(out["points.occ"], expected_occ)
+
+
+def test_crop_pointcloud_reindexes_pixel_coords() -> None:
+    transform = CropPointcloud(apply_to="inputs", mode="cube", padding=0.0, scale_factor=2.0)
+    data = {
+        "inputs": np.asarray(
+            [
+                [0.0, 0.0, 0.0],
+                [1.2, 0.0, 0.0],
+                [0.5, 0.5, 0.5],
+            ],
+            dtype=np.float32,
+        ),
+        "inputs.colors": np.asarray([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.5, 0.5, 0.5]], dtype=np.float32),
+        "inputs.pixel_coords": np.asarray([[0, 0], [1, 1], [2, 2]], dtype=np.int64),
+    }
+
+    out = transform(_str_key_data(data))
+
+    assert out["inputs"].shape == (2, 3)
+    np.testing.assert_array_equal(out["inputs.pixel_coords"], np.asarray([[0, 0], [2, 2]], dtype=np.int64))
+    np.testing.assert_array_equal(
+        out["inputs.colors"], np.asarray([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]], dtype=np.float32)
+    )
+
+
+def test_subsample_pointcloud_drops_stale_pixel_coords(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(transforms_module, "subsample_indices", lambda array, num: np.arange(int(num)))
+    transform = SubsamplePointcloud(apply_to="inputs", num_samples=2)
+    data = {
+        "inputs": np.asarray([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [2.0, 2.0, 2.0]], dtype=np.float32),
+        "inputs.pixel_coords": np.asarray([[0, 0], [1, 1], [2, 2], [3, 3]], dtype=np.int64),
+    }
+
+    out = transform(_str_key_data(data))
+
+    assert out["inputs"].shape == (2, 3)
+    assert "inputs.pixel_coords" not in out
+
+
+def test_subsample_pointcloud_uses_per_frame_seed_for_aligned_fields() -> None:
+    transform = SubsamplePointcloud(
+        apply_to="inputs",
+        num_samples=4,
+        seed_key="inputs.point_seed",
+    )
+    points = np.arange(30, dtype=np.float32).reshape(10, 3)
+    labels = np.arange(10, dtype=np.int64)
+    pixel_coords = np.column_stack([labels, labels + 10])
+    seed = 1234
+    expected_indices = np.random.default_rng(seed).choice(10, size=4, replace=False)
+
+    output = transform(
+        _str_key_data(
+            {
+                "inputs": points.copy(),
+                "inputs.labels": labels.copy(),
+                "inputs.pixel_coords": pixel_coords.copy(),
+                "inputs.point_seed": seed,
+            }
+        )
+    )
+
+    np.testing.assert_array_equal(output["inputs"], points[expected_indices])
+    np.testing.assert_array_equal(output["inputs.labels"], labels[expected_indices])
+    np.testing.assert_array_equal(output["inputs.pixel_coords"], pixel_coords[expected_indices])
 
 
 def test_keys_to_keep_filter_and_mutation_methods():
@@ -581,6 +650,26 @@ def test_refine_pose_skips_icp_when_too_few_points(monkeypatch: pytest.MonkeyPat
     )
 
     np.testing.assert_allclose(out["mesh.vertices"], src)
+
+
+def test_refine_pose_egl_backend_can_be_disabled(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("PYOPENGL_PLATFORM", raising=False)
+
+    RefinePose(use_egl=False)
+    assert "PYOPENGL_PLATFORM" not in os.environ
+
+    RefinePose(use_egl=True)
+    assert os.environ["PYOPENGL_PLATFORM"] == "egl"
+
+
+def test_refine_pose_per_instance_egl_backend_can_be_disabled(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("PYOPENGL_PLATFORM", raising=False)
+
+    RefinePosePerInstance(use_egl=False)
+    assert "PYOPENGL_PLATFORM" not in os.environ
+
+    RefinePosePerInstance(use_egl=True)
+    assert os.environ["PYOPENGL_PLATFORM"] == "egl"
 
 
 def test_render_apply_normalizes_tensor_camera_params(monkeypatch: pytest.MonkeyPatch):

@@ -839,11 +839,13 @@ def get_bop_scene(cfg: DictConfig, ds: str, split: str) -> BOPSceneEval:
                     point_to_plane=True,
                     remove_outlier=True,
                     show=show_refine_pose,
+                    use_egl=not cfg.vis.show,
                 ),
                 RefinePosePerInstance(
                     point_to_plane=True,
                     remove_outlier=True,
                     show=show_refine_pose,
+                    use_egl=not cfg.vis.show,
                 ),
             ]
         )
@@ -954,6 +956,10 @@ def get_bop_scene(cfg: DictConfig, ds: str, split: str) -> BOPSceneEval:
         "dbscan_include_background": cfg.data.get("bop_dbscan_include_background", False),
         "dbscan_show": bool(cfg.vis.show and cfg.log.verbose > 1),
         "one_view_per_scene": cfg.get("single_view", False),
+        "ann_id_mod": cfg.data.get("bop_ann_id_mod", None),
+        "ann_id_remainder": cfg.data.get("bop_ann_id_remainder", None),
+        "use_scene_camera_world": cfg.data.get("frame") == "world",
+        "target_filename": cfg.data.get("bop_target_filename", "test_targets_bop19.json"),
         "transforms": transforms_3d,
     }
     if is_gc6d:
@@ -988,7 +994,7 @@ def get_tabletop_transforms(
     normalize: bool = True,
 ) -> T.Transform | None:
     to_tensor = [T.ToImage(), T.ToDtype(torch.float32)]
-    if cfg.inputs.type not in ["depth", "kinect", "kinect_sim"]:
+    if cfg.inputs.type not in ["depth", "kinect", "kinect_sim", "stereo_depth"]:
         to_tensor = [T.ToImage(), T.ToDtype(torch.float32, scale=normalize)]
         if normalize:
             to_tensor.append(T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]))
@@ -1067,7 +1073,7 @@ def get_tabletop_transforms(
         if not load_3d and cfg.aug.flip:
             # TODO: Add height/width transpose transform which works with 3D data
             transforms.append(T.RandomHorizontalFlip())
-        if cfg.inputs.type not in ["depth", "kinect", "kinect_sim"]:
+        if cfg.inputs.type not in ["depth", "kinect", "kinect_sim", "stereo_depth"]:
             transforms.append(T.RandomPhotometricDistort())
     elif split == "val":
         if scale != 1.0 or patch_size:
@@ -1088,7 +1094,7 @@ def get_tabletop_transforms(
 
 def get_tabletop(cfg: DictConfig, split: str, ds: str = "tabletop") -> TableTop:
     load_3d = cfg.get("load_3d")
-    inputs_3d = cfg.inputs.type in ["depth", "kinect", "kinect_sim", "rgbd"] and cfg.inputs.project
+    inputs_3d = cfg.inputs.type in ["depth", "kinect", "kinect_sim", "stereo_depth", "rgbd"] and cfg.inputs.project
     collate_3d = cfg.get("collate_3d")
     transforms = get_tabletop_transforms(
         cfg=cfg,
@@ -1217,12 +1223,17 @@ def get_tabletop(cfg: DictConfig, split: str, ds: str = "tabletop") -> TableTop:
     if split == "test" or not cfg.points.subsample or collate_3d not in ["stack", "cat"]:
         points_fraction = None
     tabletop_cls = cast(Any, TableTop)
+    inputs_type = str(cfg.inputs.type)
+    depth_type = str(cfg.inputs.get("depth_type", inputs_type))
+    load_depth: bool | str = (
+        depth_type
+        if depth_type in ["kinect", "kinect_sim", "stereo_depth"]
+        else inputs_type in ["depth", "rgbd"] or depth_type == "depth"
+    )
     return tabletop_cls(
         data_dir=Path(cfg.dirs[ds]),
-        load_color=cfg.inputs.type not in ["depth", "kinect", "kinect_sim"],
-        load_depth=cfg.inputs.type
-        if cfg.inputs.type in ["kinect", "kinect_sim"]
-        else cfg.inputs.type in ["depth", "rgbd"],
+        load_color=inputs_type not in ["depth", "kinect", "kinect_sim", "stereo_depth"],
+        load_depth=load_depth,
         load_normals=cfg.inputs.normals or cfg.pointcloud.normals or cfg.points.from_pointcloud,
         apply_filter=cfg.get("filter", False),
         project=cfg.inputs.project,
@@ -1230,6 +1241,7 @@ def get_tabletop(cfg: DictConfig, split: str, ds: str = "tabletop") -> TableTop:
         split=split,
         mesh_file=cfg.files.mesh,
         pcd_file=cfg.files.pointcloud,
+        max_pcd_points=int(cfg.pointcloud.get(split, {}).get("num_points", 100_000) or 100_000),
         points_file=cfg.files.points[split],
         # crop_points=cfg.points.crop if collate_3d in ["stack", "cat"] else None,
         sample_free_points=cfg.get("sample_free", "cube") if split == "train" else "cube",
@@ -1281,6 +1293,11 @@ def get_graspnet(cfg: DictConfig, ds: str, split: str) -> GraspNetEval:
     scene_ids = cfg.data.get("graspnet_scene_ids")
     if scene_ids is not None:
         scene_ids = [int(s) for s in scene_ids]
+    view_ids = cfg.data.get(f"graspnet_{split}_view_ids")
+    if view_ids is None:
+        view_ids = cfg.data.get("graspnet_view_ids")
+    if view_ids is not None:
+        view_ids = [int(view_id) for view_id in view_ids]
 
     mesh_dir = None
     if "graspnet_models" in cfg.dirs:
@@ -1323,7 +1340,13 @@ def get_graspnet(cfg: DictConfig, ds: str, split: str) -> GraspNetEval:
             )
         )
     if cfg.inputs.num_points:
-        transforms_3d.append(SubsamplePointcloud(apply_to="inputs", num_samples=cfg.inputs.num_points))
+        transforms_3d.append(
+            SubsamplePointcloud(
+                apply_to="inputs",
+                num_samples=cfg.inputs.num_points,
+                seed_key="inputs.point_seed" if cfg.data.get("graspnet_point_seed") is not None else None,
+            )
+        )
     if cfg.points.subsample and cfg[split].num_query_points:
         transforms_3d.append(
             SubsamplePoints(
@@ -1352,18 +1375,21 @@ def get_graspnet(cfg: DictConfig, ds: str, split: str) -> GraspNetEval:
                     point_to_plane=True,
                     remove_outlier=True,
                     show=show_refine_pose,
+                    use_egl=not cfg.vis.show,
                 ),
                 RefinePosePerInstance(
                     point_to_plane=True,
                     remove_outlier=True,
                     show=show_refine_pose,
+                    use_egl=not cfg.vis.show,
                 ),
             ]
         )
 
     keys_to_keep = cfg.load.keys_to_keep
     if cfg.data.split:
-        transforms_3d.append(SplitData(split_text=False))
+        if not cfg.points.voxelize:
+            transforms_3d.append(SplitData(split_text=False))
     else:
         keys_to_keep = [key for key in keys_to_keep if not key.startswith("mesh")]
     transforms_3d.extend([KeysToKeep(keys_to_keep), CheckDtype(dither=split == "train" and cfg.data.dither)])
@@ -1388,6 +1414,9 @@ def get_graspnet(cfg: DictConfig, ds: str, split: str) -> GraspNetEval:
         stack_2d=cfg.get("stack_2d", False),
         one_view_per_scene=cfg.get("single_view", False),
         filter_background=0.01,
+        view_ids=view_ids,
+        point_seed_base=cfg.data.get("graspnet_point_seed"),
+        load_color=cfg.inputs.get("type") == "rgbd",
         transforms=transforms_3d,
     )
 

@@ -64,6 +64,7 @@ include_directories(lib/libnoise/include)
 add_library(${PROJECT_NAME} SHARED src/kinectSimulator.cpp src/noiseutils.cpp src/simulate.cpp)
 target_link_libraries(${PROJECT_NAME} assimp CGAL noise ${LIBS})
 target_link_directories(${PROJECT_NAME} PRIVATE lib/libnoise/bin)
+
 add_executable(render_object src/main.cpp)
 target_link_libraries(render_object ${PROJECT_NAME})
 target_link_directories(render_object PRIVATE lib/libnoise/bin)

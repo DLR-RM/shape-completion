@@ -52,6 +52,28 @@ def test_train_dataloader_uses_weighted_sampler() -> None:
     assert loader.batch_size == 2
 
 
+def test_train_shuffle_is_independent_of_global_model_rng() -> None:
+    first = LitDataModule(
+        train=ToyDataset(32),
+        batch_size=4,
+        num_workers=0,
+        seed=17,
+    )
+    torch.rand(10_000)
+    second = LitDataModule(
+        train=ToyDataset(32),
+        batch_size=4,
+        num_workers=0,
+        seed=17,
+    )
+
+    first_order = torch.cat(list(first.train_dataloader()))
+    torch.rand(10_000)
+    second_order = torch.cat(list(second.train_dataloader()))
+
+    assert torch.equal(first_order, second_order)
+
+
 def test_val_dataloader_uses_train_in_overfit_mode() -> None:
     train = ToyDataset(4)
     val = ToyDataset(3)

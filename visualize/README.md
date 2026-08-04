@@ -6,6 +6,7 @@ Mesh extraction and rendering infrastructure for shape completion. Provides the 
 
 ```bash
 # As submodule
+git submodule add git@rmc-github.robotic.dlr.de:humt-ma/shape-completion-visualize.git visualize
 
 # Dependencies (from main repo)
 uv sync --extra visualize

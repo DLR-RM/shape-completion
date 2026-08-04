@@ -304,7 +304,8 @@ def run(in_path: Path, args: Any):
                 script_dir = Path(__file__).parent.parent / script_dir
             assert script_dir.is_dir(), f"Script dir {script_dir} is not a directory."
             scripts = load_scripts(script_dir, num_vertices=len(vertices))
-            mesh = process(mesh, scripts)
+            if scripts:
+                mesh = process(mesh, scripts)
 
             vertices, faces = get_vertices_and_faces(mesh)
             if len(vertices) == 0 or len(faces) == 0:
@@ -316,7 +317,7 @@ def run(in_path: Path, args: Any):
 
         if not args.no_normalization:
             restart = time.perf_counter()
-            mesh, _, _ = normalize(mesh, translation=-translation * 1 / scale, scale=1 / scale)
+            mesh, _, _ = normalize(mesh, translation=-translation * scale, scale=1 / scale)
             logger.debug(f"Normalized mesh in {time.perf_counter() - restart:.2f}s.")
 
         if args.check_watertight:
@@ -416,7 +417,8 @@ def main():
     suppress_known_optional_dependency_warnings()
     assert args.mode in MODES, f"Mode '{args.mode}' not in available modes: {MODES}."
 
-    save_command_and_args_to_file(args.out_dir if args.out_dir else Path.cwd() / "command.txt", args)
+    command_path = args.out_dir / "command.txt" if args.out_dir else Path.cwd() / "command.txt"
+    save_command_and_args_to_file(command_path, args)
 
     if args.use_trimesh:
         logging.getLogger("trimesh").setLevel(logging.ERROR)

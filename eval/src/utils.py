@@ -805,8 +805,13 @@ class MeanAveragePrecision3D(Metric):
     ):
         super().__init__(**kwargs)
 
-        self.add_state("iou_thresholds", default=torch.tensor(iou_thresholds))
-        self.add_state("max_detection_thresholds", default=torch.tensor(max_detection_thresholds))
+        # Metric configuration must not be gathered as per-rank state during DDP compute.
+        self.register_buffer("iou_thresholds", torch.tensor(iou_thresholds), persistent=False)
+        self.register_buffer(
+            "max_detection_thresholds",
+            torch.tensor(max_detection_thresholds),
+            persistent=False,
+        )
         if area_ranges is None:
             area_ranges = {
                 "map_small": (0.0, 32.0**2),
@@ -1264,6 +1269,9 @@ class PanopticQuality3D(Metric):
         self.add_state("fp", default=torch.tensor(0.0), dist_reduce_fx="sum")
         self.add_state("fn", default=torch.tensor(0.0), dist_reduce_fx="sum")
         self.add_state("iou_sum", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("empty_frames", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("empty_frames_with_predictions", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("empty_frame_predictions", default=torch.tensor(0.0), dist_reduce_fx="sum")
         # Bins
         self.add_state("tp_bins", default=torch.zeros(num_bins), dist_reduce_fx="sum")
         self.add_state("fp_bins", default=torch.zeros(num_bins), dist_reduce_fx="sum")
@@ -1381,6 +1389,10 @@ class PanopticQuality3D(Metric):
             G = gt_masks.shape[0]
 
             # Empty cases
+            if G == 0:
+                self.empty_frames += 1.0
+                self.empty_frame_predictions += float(P)
+                self.empty_frames_with_predictions += float(P > 0)
             if P == 0 and G == 0:
                 continue
             if P == 0:
@@ -1463,14 +1475,21 @@ class PanopticQuality3D(Metric):
         fp = float(cast(Tensor, self.fp).item())
         fn = float(cast(Tensor, self.fn).item())
         iou_sum = float(cast(Tensor, self.iou_sum).item())
+        empty_frames = float(cast(Tensor, self.empty_frames).item())
+        empty_frame_predictions = float(cast(Tensor, self.empty_frame_predictions).item())
+        empty_frames_with_predictions = float(cast(Tensor, self.empty_frames_with_predictions).item())
+        empty_metrics = {
+            "empty_detection_rate": empty_frames_with_predictions / empty_frames if empty_frames else 0.0,
+            "empty_fp_per_frame": empty_frame_predictions / empty_frames if empty_frames else 0.0,
+        }
         denom = tp + 0.5 * fp + 0.5 * fn
         if denom == 0:
-            return {"pq": 0.0, "rq": 0.0, "sq": 0.0}
+            return {"pq": 0.0, "rq": 0.0, "sq": 0.0, **empty_metrics}
 
         rq = tp / denom
         sq = (iou_sum / tp) if tp > 0 else 0.0
         pq = iou_sum / denom
-        results = {"pq": pq, "rq": rq, "sq": sq}
+        results = {"pq": pq, "rq": rq, "sq": sq, **empty_metrics}
 
         if self.size_bin_edges_dict and self.track_bin_iou:
             for b, tag in enumerate(self.size_bin_edges_dict.keys()):

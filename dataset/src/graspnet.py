@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import importlib.util
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
@@ -24,6 +25,11 @@ except ImportError:
     HAS_LIBMESH = False
 
 logger = setup_logger(__name__)
+
+
+def _stable_point_seed(base_seed: int, sample_id: str) -> int:
+    digest = hashlib.sha256(f"{base_seed}:{sample_id}".encode("ascii")).digest()
+    return int.from_bytes(digest[:4], byteorder="little", signed=False)
 
 
 def _log_debug_level_1(message: str) -> None:
@@ -59,6 +65,15 @@ def _load_depth(depth_path: Path, depth_scale: float) -> np.ndarray:
     # Depth is stored as uint16 in millimetres; convert to float depth (metres by default).
     depth /= depth_scale
     return depth
+
+
+def _labels_at_pixels(instance_map: np.ndarray, rows: np.ndarray, cols: np.ndarray) -> np.ndarray:
+    instance_map = np.asarray(instance_map)
+    if instance_map.ndim == 3 and instance_map.shape[0] == 0:
+        return np.zeros(len(rows), dtype=np.int64)
+    if instance_map.ndim != 2:
+        raise ValueError(f"Expected a 2D stacked instance map, got shape {instance_map.shape}")
+    return instance_map[rows, cols].astype(np.int64)
 
 
 @dataclass(frozen=True)
@@ -144,12 +159,18 @@ class GraspNetEval(Dataset):
     one_view_per_scene: bool
         If True, randomly selects only one view (frame) per scene instead of all views.
         Useful to avoid overfitting when multiple views of the same scene are available.
+    view_ids: Optional[Iterable[int]]
+        If set, keeps only these frame IDs in every selected scene.
+    point_seed_base: Optional[int]
+        If set, adds a stable per-frame seed for deterministic input-point subsampling.
     transforms: Optional[Callable]
         Optional data transformations to apply.
     filter_background: Optional[float]
         If set, removes projected depth points whose label==0 (background) and whose Z coordinate
         exceeds this threshold. Z is interpreted in the coordinate frame of `inputs` after projection
         (table frame if available, else world, else camera). Units are meters.
+    load_color: bool
+        If True, loads the RGB image for RGB-D model evaluation.
     """
 
     def __init__(
@@ -161,6 +182,8 @@ class GraspNetEval(Dataset):
         load_mesh: bool = True,
         mesh_dir: Path | str | None = None,
         scene_ids: Iterable[int] | None = None,
+        view_ids: Iterable[int] | None = None,
+        point_seed_base: int | None = None,
         project: bool = False,
         crop_to_mesh: bool = False,
         crop_padding: float = 0.1,
@@ -182,6 +205,7 @@ class GraspNetEval(Dataset):
         stack_2d: bool = False,
         one_view_per_scene: bool = False,
         filter_background: float | None = None,
+        load_color: bool = False,
         transforms: Callable | list[Transform] | None = None,
     ) -> None:
         self.name = self.__class__.__name__
@@ -192,6 +216,8 @@ class GraspNetEval(Dataset):
         self.load_mesh = load_mesh
         self.mesh_dir = Path(mesh_dir) if mesh_dir is not None else self.root / "models"
         self.scene_ids = set(scene_ids) if scene_ids is not None else None
+        self.view_ids = {f"{int(view_id):04d}" for view_id in view_ids} if view_ids is not None else None
+        self.point_seed_base = point_seed_base
         self.project = project
         self.crop_to_mesh = crop_to_mesh
         self.crop_padding = crop_padding
@@ -215,6 +241,7 @@ class GraspNetEval(Dataset):
         self.stack_2d = stack_2d
         self.one_view_per_scene = one_view_per_scene
         self.filter_background = filter_background
+        self.load_color = load_color
         self.transforms = transforms
         self._mesh_decimation_enabled = self.mesh_simplify_fraction is not None
         self._mesh_decimation_disabled_reason: str | None = None
@@ -286,6 +313,9 @@ class GraspNetEval(Dataset):
             "inputs.name": depth_path.name,
             "inputs.path": depth_path,
         }
+        if self.point_seed_base is not None:
+            sample_id = f"{sample.scene_dir.name}/{self.camera}/{sample.ann_id}"
+            item["inputs.point_seed"] = _stable_point_seed(self.point_seed_base, sample_id)
 
         # Load intrinsic matrix
         intrinsic = meta.get("intrinsic_matrix")
@@ -303,6 +333,9 @@ class GraspNetEval(Dataset):
         item["inputs.height"] = depth.shape[0]
         item["inputs.width"] = depth.shape[1]
 
+        if self.load_color:
+            item["inputs.image"] = self._load_rgb(sample)
+
         # Load and populate masks/labels if requested
         if self.load_label:
             self._populate_masks(item, sample)
@@ -316,12 +349,19 @@ class GraspNetEval(Dataset):
             )
             item["inputs.depth"] = depth
             item["inputs"] = np.asarray(pcd.points)
+            v_coords, u_coords = np.nonzero(depth > 0)
+            item["inputs.pixel_coords"] = np.column_stack([v_coords, u_coords]).astype(np.int32)
+            if self.load_color:
+                item["inputs.colors"] = self._point_colors_from_image(
+                    item["inputs.image"],
+                    v_coords,
+                    u_coords,
+                )
 
             # Project labels to 3D points if stack_2d is enabled
             if self.stack_2d and "inputs.masks" in item:
-                v_coords, u_coords = np.nonzero(depth > 0)
                 instance_map = item["inputs.masks"]
-                point_labels = instance_map[v_coords, u_coords].astype(np.int64)
+                point_labels = _labels_at_pixels(instance_map, v_coords, u_coords)
                 item["inputs.labels"] = point_labels
 
             # Remove background (label==0) points whose Z exceeds threshold
@@ -337,8 +377,7 @@ class GraspNetEval(Dataset):
                 lbl = item["inputs.labels"]
                 z_thresh = float(self.filter_background)
                 keep_mask = ~((lbl == 0) & ((pts[:, 2] > z_thresh) | (pts[:, 2] < -z_thresh)))
-                item["inputs"] = pts[keep_mask]
-                item["inputs.labels"] = lbl[keep_mask]
+                self._apply_input_point_keep_mask(item, keep_mask)
 
         # Load and transform meshes if requested
         if self.load_mesh:
@@ -578,6 +617,8 @@ class GraspNetEval(Dataset):
 
             depth_dir = _camera_dir(scene_dir, self.camera, "depth")
             ann_ids = sorted(p.stem for p in depth_dir.glob("*.png"))
+            if self.view_ids is not None:
+                ann_ids = [ann_id for ann_id in ann_ids if ann_id in self.view_ids]
 
             if self.one_view_per_scene and len(ann_ids) > 0:
                 # Randomly select one view per scene
@@ -619,6 +660,23 @@ class GraspNetEval(Dataset):
         depth_path = self._depth_path(sample)
         depth = _load_depth(depth_path, depth_scale)
         return depth, meta
+
+    def _rgb_path(self, sample: _Sample) -> Path:
+        return sample.scene_dir / self.camera / "rgb" / f"{sample.ann_id}.png"
+
+    def _load_rgb(self, sample: _Sample) -> np.ndarray:
+        rgb_path = self._rgb_path(sample)
+        if not rgb_path.exists():
+            raise FileNotFoundError(f"Missing RGB image {rgb_path}.")
+        image = np.asarray(Image.open(rgb_path).convert("RGB"), dtype=np.uint8)
+        return np.moveaxis(image, -1, 0)
+
+    @staticmethod
+    def _point_colors_from_image(image: np.ndarray, rows: np.ndarray, cols: np.ndarray) -> np.ndarray:
+        if image.ndim != 3 or image.shape[0] != 3:
+            raise ValueError(f"Expected CHW RGB image, got {image.shape}.")
+        colors = image[:, rows, cols].T
+        return colors.astype(np.float32) / 255.0
 
     def _load_meta(self, sample: _Sample) -> dict[str, Any]:
         """Load and cache metadata for a sample."""
@@ -715,6 +773,20 @@ class GraspNetEval(Dataset):
         if "inputs.labels" in item and isinstance(item["inputs.labels"], np.ndarray):
             if len(item["inputs.labels"]) == len(points):
                 item["inputs.labels"] = item["inputs.labels"][mask]
+        if "inputs.pixel_coords" in item and len(item["inputs.pixel_coords"]) == len(points):
+            item["inputs.pixel_coords"] = item["inputs.pixel_coords"][mask]
+        if "inputs.colors" in item and len(item["inputs.colors"]) == len(points):
+            item["inputs.colors"] = item["inputs.colors"][mask]
+
+    def _apply_input_point_keep_mask(self, item: dict[str, Any], keep_mask: np.ndarray) -> None:
+        old_labels = np.asarray(item["inputs.labels"]) if "inputs.labels" in item else None
+        item["inputs"] = item["inputs"][keep_mask]
+        if old_labels is not None and len(old_labels) == len(keep_mask):
+            item["inputs.labels"] = old_labels[keep_mask]
+        if "inputs.pixel_coords" in item and len(item["inputs.pixel_coords"]) == len(keep_mask):
+            item["inputs.pixel_coords"] = item["inputs.pixel_coords"][keep_mask]
+        if "inputs.colors" in item and len(item["inputs.colors"]) == len(keep_mask):
+            item["inputs.colors"] = item["inputs.colors"][keep_mask]
 
     def _populate_masks(self, item: dict[str, Any], sample: _Sample) -> None:
         """

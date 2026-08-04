@@ -8,6 +8,7 @@ Shared utility functions and classes used across all shape-completion submodules
 
 ```bash
 # As submodule (required by all other submodules)
+git submodule add git@rmc-github.robotic.dlr.de:humt-ma/shape-completion-utils.git utils
 ```
 
 ## Quick Start

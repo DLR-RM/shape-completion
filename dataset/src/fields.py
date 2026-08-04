@@ -101,14 +101,14 @@ def _load_points(
         points_data = cast(Mapping[str, Any], raw_data)
         points = points_data["points"]
         occupancy = points_data["occupancies"]
-        occupancy = np.unpackbits(occupancy).astype(bool)
+        occupancy = np.unpackbits(occupancy)[: len(points)].astype(bool)
         return points, occupancy
 
     if file_path.suffix == ".npz":
         points_data = np.load(file_path)
         points = points_data["points"]
         occupancy = points_data["occupancies"]
-        occupancy = np.unpackbits(occupancy).astype(bool)
+        occupancy = np.unpackbits(occupancy)[: len(points)].astype(bool)
     elif file_path.suffix == ".npy":
         points_data = np.load(file_path)
         points = points_data[:, :3]

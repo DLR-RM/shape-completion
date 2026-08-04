@@ -1,6 +1,8 @@
 import blenderproc as bproc  # noqa: I001  # pyright: ignore[reportMissingImports]
 
+import hashlib
 import json
+import os
 import random
 import shutil
 import sys
@@ -242,24 +244,52 @@ class Config:
     """XYZ-Euler angles of the object in degrees or True for random rotation."""
     upright: bool = True
     """Constrain rotation to Z-axis only (objects stay upright). Preserves coordinate convention."""
+    upright_x_rotation: float = 90.0
+    """X-axis rotation in degrees applied before random yaw for upright placement."""
+    upright_x_rotation_path_overrides: dict[str, float] = field(default_factory=dict)
+    """Path-token overrides for source-specific upright X rotations in mixed asset lists."""
     spawn_height: tuple[float, float] | None = None
     """Min/max height for spawning objects above surface (overrides default 1-4m)."""
     spawn_bounds: tuple[float, float] | None = None
     """XY spawn bounds: fraction of surface for 'surface' placement (e.g., 0.4-0.6), absolute meters for 'volume' (e.g., -0.3 to 0.3)."""
-    containment_walls: bool = False
+    containment_walls: bool | None = None
     """Add temporary containment walls during physics simulation."""
-    placement: Literal["surface", "volume", "sequential", "tower"] | None = None
-    """Placement strategy: 'surface' (packed), 'volume' (simultaneous drop), 'sequential' (VGN-style pile), 'tower' (vertical column, collapses). Default: surface."""
+    placement: Literal["surface", "surface_aabb", "volume", "sequential", "tower"] | None = None
+    """Placement strategy: packed surface, collision-proxy-safe surface, volume, sequential drop, or tower."""
+    placement_min_distance: float = 0.005
+    """Minimum XY separation between world AABBs for surface_aabb placement."""
+    placement_bounds_ratio_limit: float = 4.0
+    """Reject objects whose evaluated and normalized bounds disagree by more than this factor."""
+    pile_batch_size: int = 2
+    """Number of vertically separated objects released per pile-settling step."""
+    pile_drop_margin: tuple[float, float] = (0.01, 0.03)
+    """Minimum and maximum clearance above the current pile for each release."""
+    pile_settle_time: float = 0.5
+    """Minimum simulated settling time after each pile batch."""
+    pile_wall_margin: float = 0.01
+    """Horizontal margin between the pile spawn region and temporary walls."""
+    pile_center_radius: float | None = 0.0
+    """Optional maximum absolute XY center offset for pile releases."""
     collision_shape: Literal["CONVEX_HULL", "MESH", "BOX", "COMPOUND"] = "CONVEX_HULL"
     """Collision shape for physics: CONVEX_HULL (fast, poor for concave), MESH (accurate, slow), BOX (fastest), COMPOUND (VHACD decomposition)."""
     decomposition: Literal["vhacd", "coacd"] = "vhacd"
-    """Convex decomposition method for COMPOUND collision shape: CoACD (SIGGRAPH 2022, default) or V-HACD (fallback)."""
+    """Convex decomposition method for COMPOUND collision shape."""
+    collision_margin: float = 0.001
+    """Rigid-body collision margin in meters."""
+    rigidbody_friction: float | None = None
+    """Object and floor friction coefficient."""
+    linear_damping: float = 0.1
+    """Rigid-body linear damping."""
+    angular_damping: float = 0.15
+    """Rigid-body angular damping."""
     coacd_threshold: float = 0.05
     """CoACD concavity threshold (lower = more parts, higher quality)."""
     coacd_path: Path = Path(__file__).resolve().parent.parent.parent / "libs" / "coacd"
     """Path to CoACD directory (for cache storage)."""
     vhacd_path: Path = Path(__file__).resolve().parent.parent.parent / "libs"  # Contains v-hacd/app/TestVHACD
     """Path to VHACD directory (auto-downloaded if not present)."""
+    decomposition_cache_dir: Path | None = None
+    """Optional shared root for stable per-mesh collision decomposition caches."""
     scene: Literal["packed", "pile"] | None = None
     """Preset scene configuration (sets spawn_height, spawn_bounds, containment_walls, upright, placement)."""
     solidify: float | None = None
@@ -270,10 +300,26 @@ class Config:
     """Load random Haven HDRI image from this path."""
     hdri_strength: float | Literal["random"] = 1.0
     """Emission strength of the HDRI image."""
+    hdri_assets: tuple[str, ...] | None = None
+    """Optional Haven HDRI asset allowlist."""
     randomize_hdri: bool = False
     """Randomize the HDRI image for each frame."""
+    randomize_hdri_rotation: bool = False
+    """Randomize the scene-level HDRI azimuth."""
     lights: int | tuple[int, int] | None = None
-    """Add (random) number of lights to add to the scene."""
+    """Fixed count or (inclusive min, exclusive max) random light count."""
+    light_type: Literal["POINT", "AREA"] = "POINT"
+    """Type of direct light used for random scene illumination."""
+    light_radius: tuple[float, float] = (5.0, 10.0)
+    """Min/max radius in meters for sampled lights."""
+    light_elevation: tuple[float, float] = (1.0, 89.0)
+    """Min/max elevation in degrees for sampled lights."""
+    light_energy: tuple[float, float] = (0.0, 250.0)
+    """Min/max total direct-light energy, divided across sampled lights."""
+    light_size: tuple[float, float] = (0.25, 0.25)
+    """Min/max area-light size or point-light shadow radius in meters."""
+    light_color_mode: Literal["rgb", "neutral"] = "rgb"
+    """Sample legacy independent RGB colors or correlated warm-to-cool neutral light."""
     randomize_lights: bool = False
     """Randomize lights for each frame."""
     materials: bool = False
@@ -290,6 +336,14 @@ class Config:
     """Set random texture replacement for the materials."""
     cc_material_path: Path | None = None
     """Path to the CC materials directory."""
+    cc_material_assets: tuple[str, ...] | None = None
+    """Optional CC material name prefixes used to restrict support texture replacement."""
+    surface_material_profile: Literal["tabletop"] | None = None
+    """Bounded procedural material profile for the support surface."""
+    materialless_object_path_profiles: dict[str, Literal["fixed", "industrial"]] = field(default_factory=dict)
+    """Source path tokens mapped to fallback profiles for material-less objects."""
+    world_background_strength: float = 0.1
+    """World background emission strength when no HDRI is active."""
     engine: str = "cycles"
     """The Blender render eninge to use."""
     max_samples: int | Literal["auto"] = "auto"
@@ -306,16 +360,50 @@ class Config:
     """Number of objects to render."""
     physics: bool = False
     """Enable physics simulation for the objects."""
+    physics_min_simulation_time: float = 2.0
+    """Minimum simulated settling time in seconds."""
+    physics_max_simulation_time: float = 15.0
+    """Maximum simulated settling time in seconds."""
+    physics_check_interval: float = 0.5
+    """Interval between settled-object checks in simulated seconds."""
+    physics_substeps_per_frame: int = 25
+    """Bullet substeps per frame."""
+    physics_solver_iters: int = 20
+    """Bullet solver iterations per step."""
+    correct_floor_penetration: bool = False
+    """Lift penetrating objects to the surface after packed-scene settling."""
+    physics_reject_max_abs_xy: float | None = None
+    """Hide post-physics objects whose AABB center exceeds this XY magnitude."""
+    physics_reject_min_z: float | None = None
+    """Hide post-physics objects whose rendered bounds fall below this Z value."""
+    physics_reject_max_z: float | None = None
+    """Hide post-physics objects whose rendered bounds exceed this Z value."""
     surface: Literal["plane", "table"] | None = None
     """Surface to place the objects on."""
+    surface_size: float = 5.0
+    """Side length in meters for a generated plane surface."""
+    surface_thickness: float = 0.04
+    """Thickness in meters for a generated table slab."""
     normals: bool = False
     """Enable normal output."""
     depth: bool = False
     """Enable depth output."""
     kinect: bool = False
     """Enable Kinect Azure noise on depth output."""
+    kinect_darkness_threshold: int = 15
+    """Grayscale threshold below which Kinect Azure depth is invalidated."""
     kinect_sim: bool = False
     """Enable structured light Kinect v1 depth simulation (libkinect)."""
+    stereo_depth: bool = False
+    """Enable BlenderProc semi-global matching depth from a rendered right-camera view."""
+    stereo_baseline: float = 0.05
+    """Horizontal stereo baseline in meters."""
+    stereo_depth_max: float = 2.0
+    """Maximum valid stereo depth in meters."""
+    stereo_window_size: int = 7
+    """Semi-global matching window size; must be odd."""
+    stereo_num_disparities: int = 128
+    """Semi-global matching disparity search width; must be divisible by 16."""
     diffuse: bool = False
     """Enable diffuse color output."""
     segmentation: bool = False
@@ -340,6 +428,8 @@ class Config:
     """Enable verbose logging."""
     quiet: bool = False
     """Disable logging to stdout."""
+    scene_metadata: dict[str, Any] | None = None
+    """Serializable scene-generation settings persisted into each HDF5 frame record."""
 
     def __post_init__(self):
         logger.remove()
@@ -349,7 +439,7 @@ class Config:
             level = "DEBUG" if self.verbose else "INFO"
             logger.add(sys.stderr, level=level)
 
-        if self.seed:
+        if self.seed is not None:
             random.seed(self.seed)
             np.random.seed(self.seed)
             logger.debug(f"Set random seed to {self.seed}")
@@ -368,7 +458,8 @@ class Config:
         is_primitives = str(self.object_path) == "primitives"
         is_txt_list = isinstance(self.object_path, Path) and self.object_path.suffix == ".txt"
         if is_primitives or is_txt_list:
-            self.num_objects = self.num_objects or 1
+            if self.num_objects is None:
+                self.num_objects = 1
             if isinstance(self.num_objects, (tuple, list)):
                 low, high = self.num_objects
                 mean = (low + high) / 2
@@ -426,9 +517,21 @@ class Config:
 
         if self.kinect:
             self.depth = True
+            if not 0 <= self.kinect_darkness_threshold <= 255:
+                raise ValueError("kinect_darkness_threshold must be between 0 and 255")
 
         if self.kinect_sim:
             self.depth = True
+
+        if self.stereo_depth:
+            if self.stereo_baseline <= 0 or self.stereo_depth_max <= 0:
+                raise ValueError("stereo baseline and maximum depth must be positive")
+            if self.stereo_window_size <= 0 or self.stereo_window_size % 2 == 0:
+                raise ValueError("stereo_window_size must be a positive odd integer")
+            if self.stereo_num_disparities <= 0 or self.stereo_num_disparities % 16:
+                raise ValueError("stereo_num_disparities must be positive and divisible by 16")
+            if self.randomize_hdri or self.randomize_lights or self.randomize_materials or self.randomize_colors:
+                raise ValueError("stereo_depth requires scene-level, not per-frame, appearance randomization")
 
         if self.segmentation and not self.writer:
             self.writer = "bop"
@@ -436,6 +539,55 @@ class Config:
         if self.replace:
             if not self.cc_material_path:
                 raise ValueError("CC material path must be set when using texture replacement.")
+
+        if isinstance(self.lights, int) and self.lights <= 0:
+            raise ValueError("lights must be positive")
+        if isinstance(self.lights, tuple) and (
+            len(self.lights) != 2 or self.lights[0] < 0 or self.lights[0] >= self.lights[1]
+        ):
+            raise ValueError("lights must be a non-negative (inclusive min, exclusive max) pair")
+        for name, value, minimum in (
+            ("light_radius", self.light_radius, 0.0),
+            ("light_energy", self.light_energy, 0.0),
+            ("light_size", self.light_size, 0.0),
+        ):
+            if len(value) != 2 or value[0] < minimum or value[0] > value[1]:
+                raise ValueError(f"{name} must be a non-negative (min, max) pair")
+        if self.light_size[0] <= 0:
+            raise ValueError("light_size must be positive")
+        if len(self.light_elevation) != 2 or not 0 <= self.light_elevation[0] <= self.light_elevation[1] <= 90:
+            raise ValueError("light_elevation must lie within [0, 90] degrees")
+        if self.world_background_strength < 0:
+            raise ValueError("world_background_strength must be non-negative")
+        if self.surface_size <= 0:
+            raise ValueError("surface_size must be positive")
+        if self.surface_thickness <= 0:
+            raise ValueError("surface_thickness must be positive")
+        for token, rotation in self.upright_x_rotation_path_overrides.items():
+            if not token.strip() or not np.isfinite(float(rotation)):
+                raise ValueError(
+                    "upright_x_rotation_path_overrides requires non-empty path tokens and finite rotations"
+                )
+        for token, profile in self.materialless_object_path_profiles.items():
+            if not token.strip() or profile not in {"fixed", "industrial"}:
+                raise ValueError(
+                    "materialless_object_path_profiles requires non-empty path tokens and fixed or industrial profiles"
+                )
+
+        if self.pile_batch_size < 1:
+            raise ValueError("pile_batch_size must be positive")
+        if self.pile_settle_time <= 0:
+            raise ValueError("pile_settle_time must be positive")
+        if self.pile_wall_margin < 0:
+            raise ValueError("pile_wall_margin must be non-negative")
+        if self.pile_center_radius is not None and self.pile_center_radius < 0:
+            raise ValueError("pile_center_radius must be non-negative")
+        if (
+            len(self.pile_drop_margin) != 2
+            or self.pile_drop_margin[0] < 0
+            or self.pile_drop_margin[0] > self.pile_drop_margin[1]
+        ):
+            raise ValueError("pile_drop_margin must be a non-negative (min, max) pair")
 
         # Apply scene presets (VGN-style configurations)
         # Compute average object size for spawn bounds scaling
@@ -452,12 +604,14 @@ class Config:
                 # Scale spawn area based on object count and size
                 # VGN ratio: ~0.07m half-width for 5 objects at ~0.1m scale
                 spawn_half = max(0.15, np.sqrt(num_objs) * avg_scale * 0.7)
+                plane_half = self.surface_size / 2.0
                 self.spawn_bounds = (
-                    0.5 - spawn_half / 2.5,
-                    0.5 + spawn_half / 2.5,
+                    0.5 - spawn_half / plane_half,
+                    0.5 + spawn_half / plane_half,
                 )  # Relative to plane
             # upright=True is already default; placement defaults to surface at end of __post_init__
-            self.containment_walls = False
+            if self.containment_walls is None:
+                self.containment_walls = False
             if not self.physics:
                 self.physics = True  # ShapeNet objects need settling
                 logger.warning("Enabling physics for packed scene (required for settling)")
@@ -478,10 +632,17 @@ class Config:
                 self.spawn_bounds = (-spawn_half, spawn_half)  # Absolute bounds
             self.upright = False  # Full SO3 rotation
             if self.placement is None:
-                self.placement = "volume"  # Use sample_poses, not sample_poses_on_surface
-            self.containment_walls = True  # Prevent objects flying off
-            if self.collision_shape == "CONVEX_HULL":
-                self.collision_shape = "COMPOUND"  # Use VHACD for accurate concave object physics
+                self.placement = "sequential"
+            if self.containment_walls is None:
+                self.containment_walls = True
+            if self.solidify is None:
+                self.solidify = 0.0
+            if self.physics_reject_max_abs_xy is None:
+                self.physics_reject_max_abs_xy = 0.5
+            if self.physics_reject_min_z is None:
+                self.physics_reject_min_z = -0.1
+            if self.physics_reject_max_z is None:
+                self.physics_reject_max_z = 2.0
             if not self.physics:
                 self.physics = True  # Pile requires physics
                 logger.warning("Enabling physics for pile scene (required for settling)")
@@ -489,7 +650,13 @@ class Config:
                 f"Scene preset 'pile': {num_objs} objects, avg_scale={avg_scale:.2f}, collision={self.collision_shape}, bounds={self.spawn_bounds}"
             )
 
-        # Auto-enable solidify for physics (thin-shell meshes need thickness for stability)
+        if self.containment_walls is None:
+            self.containment_walls = False
+
+        if self.rigidbody_friction is None:
+            self.rigidbody_friction = 0.8 if self.scene == "pile" else 0.5
+
+        # Preserve the historical generic behavior outside the pile preset.
         if self.physics and self.solidify is None:
             self.solidify = 0.0025
 
@@ -514,11 +681,34 @@ def random_pose_fn(
         obj.set_rotation_euler(bproc.sampler.uniformSO3())
 
 
+def upright_x_rotation_for_path(
+    path: str,
+    default: float,
+    overrides: dict[str, float] | None,
+) -> float:
+    """Resolve one unambiguous source-specific upright rotation from an asset path."""
+    matches = {float(rotation) for token, rotation in (overrides or {}).items() if token.lower() in path.lower()}
+    if len(matches) > 1:
+        raise ValueError(f"Conflicting upright rotation overrides match asset path {path!r}")
+    return matches.pop() if matches else float(default)
+
+
+def upright_x_rotation_for_object(
+    obj: bproc.types.MeshObject,
+    default: float,
+    overrides: dict[str, float] | None,
+) -> float:
+    path = str(obj.get_cp("source_asset_path")) if obj.has_cp("source_asset_path") else ""
+    return upright_x_rotation_for_path(path, default, overrides)
+
+
 def upper_region_pose_fn(
     obj: bproc.types.MeshObject,
     surface: bproc.types.MeshObject | None = None,
     rotation: bool | tuple[float, float, float] | None = False,
     upright: bool = False,
+    upright_x_rotation: float = 90.0,
+    upright_x_rotation_path_overrides: dict[str, float] | None = None,
     spawn_height: tuple[float, float] = (1.0, 4.0),
     spawn_bounds: tuple[float, float] = (0.4, 0.6),
 ):
@@ -536,8 +726,8 @@ def upper_region_pose_fn(
         obj.set_rotation_euler(np.deg2rad(np.asarray(rotation, dtype=np.float32)))
     elif rotation:
         if upright:
-            # Upright with random yaw (preserves π/2 X rotation for coordinate convention)
-            obj.set_rotation_euler([np.pi / 2, 0, np.random.uniform(0, np.pi * 2)])
+            x_rotation = upright_x_rotation_for_object(obj, upright_x_rotation, upright_x_rotation_path_overrides)
+            obj.set_rotation_euler([np.deg2rad(x_rotation), 0, np.random.uniform(0, np.pi * 2)])
         else:
             # Full SO3 rotation
             obj.set_rotation_euler(bproc.sampler.uniformSO3())
@@ -549,6 +739,8 @@ def volume_pose_fn(
     bounds_z: tuple[float, float] = (0.1, 0.6),
     rotation: bool | tuple[float, float, float] | None = True,
     upright: bool = False,
+    upright_x_rotation: float = 90.0,
+    upright_x_rotation_path_overrides: dict[str, float] | None = None,
 ):
     """Pose function for pile-style volume placement (no surface constraint).
 
@@ -566,8 +758,8 @@ def volume_pose_fn(
         obj.set_rotation_euler(np.deg2rad(np.asarray(rotation, dtype=np.float32)))
     elif rotation:
         if upright:
-            # Upright with random yaw (preserves π/2 X rotation for coordinate convention)
-            obj.set_rotation_euler([np.pi / 2, 0, np.random.uniform(0, np.pi * 2)])
+            x_rotation = upright_x_rotation_for_object(obj, upright_x_rotation, upright_x_rotation_path_overrides)
+            obj.set_rotation_euler([np.deg2rad(x_rotation), 0, np.random.uniform(0, np.pi * 2)])
         else:
             # Full SO3 rotation
             obj.set_rotation_euler(bproc.sampler.uniformSO3())
@@ -581,6 +773,8 @@ def place_objects_tower(
     gap: float = 0.02,
     rotation: bool | tuple[float, float, float] | None = True,
     upright: bool = False,
+    upright_x_rotation: float = 90.0,
+    upright_x_rotation_path_overrides: dict[str, float] | None = None,
 ) -> None:
     """Place objects in a vertical tower at a random XY position.
 
@@ -615,7 +809,8 @@ def place_objects_tower(
             obj.set_rotation_euler(np.deg2rad(np.asarray(rotation, dtype=np.float32)))
         elif rotation:
             if upright:
-                obj.set_rotation_euler([np.pi / 2, 0, np.random.uniform(0, np.pi * 2)])
+                x_rotation = upright_x_rotation_for_object(obj, upright_x_rotation, upright_x_rotation_path_overrides)
+                obj.set_rotation_euler([np.deg2rad(x_rotation), 0, np.random.uniform(0, np.pi * 2)])
             else:
                 obj.set_rotation_euler(bproc.sampler.uniformSO3())
 
@@ -692,13 +887,17 @@ def enable_rigidbody_with_decomposition(obj: bproc.types.MeshObject, cfg: "Confi
             obj.enable_rigidbody(
                 active=True,
                 collision_shape="COMPOUND",
-                collision_margin=0.0005,  # Smaller for COMPOUND to avoid gaps between parts
-                friction=0.5,
-                linear_damping=0.1,
-                angular_damping=0.15,
+                collision_margin=cfg.collision_margin,
+                friction=cfg.rigidbody_friction,
+                linear_damping=cfg.linear_damping,
+                angular_damping=cfg.angular_damping,
             )
             # Then decompose and add children with CONVEX_HULL
-            cache_dir = cfg.coacd_path / ".cache"
+            cache_dir = (
+                cfg.decomposition_cache_dir / "coacd"
+                if cfg.decomposition_cache_dir is not None
+                else cfg.coacd_path / ".cache"
+            )
             parts = coacd_decomposition(obj, cfg.coacd_threshold, cache_dir)
             for part in parts:
                 part_obj = MeshObject(part)
@@ -710,24 +909,251 @@ def enable_rigidbody_with_decomposition(obj: bproc.types.MeshObject, cfg: "Confi
             obj.enable_rigidbody(
                 active=True,
                 collision_shape=cfg.collision_shape,
-                collision_margin=0.0005,  # Smaller for COMPOUND to avoid gaps between parts
-                friction=0.5,
-                linear_damping=0.1,
-                angular_damping=0.15,
+                collision_margin=cfg.collision_margin,
+                friction=cfg.rigidbody_friction,
+                linear_damping=cfg.linear_damping,
+                angular_damping=cfg.angular_damping,
+            )
+            cache_dir = (
+                cfg.decomposition_cache_dir / "vhacd"
+                if cfg.decomposition_cache_dir is not None
+                else cfg.vhacd_path / "v-hacd" / ".cache"
             )
             obj.build_convex_decomposition_collision_shape(
                 str(cfg.vhacd_path),
-                cache_dir=str(cfg.vhacd_path / "v-hacd" / ".cache"),
+                cache_dir=str(cache_dir),
             )
     else:
         obj.enable_rigidbody(
             active=True,
             collision_shape=cfg.collision_shape,
-            collision_margin=0.001,  # BlenderProc default; Blender's 0.04 causes gaps
-            friction=0.5,
-            linear_damping=0.1,
-            angular_damping=0.15,
+            collision_margin=cfg.collision_margin,
+            friction=cfg.rigidbody_friction,
+            linear_damping=cfg.linear_damping,
+            angular_damping=cfg.angular_damping,
         )
+
+
+def is_render_hidden(obj: bproc.types.MeshObject) -> bool:
+    """Return whether placement rejected an object from rendering."""
+    return bool(getattr(obj.blender_obj, "hide_render", False))
+
+
+def mesh_object_world_vertices(obj: bproc.types.MeshObject) -> np.ndarray:
+    """Return tight world-space vertices for a BlenderProc mesh object."""
+    mesh = obj.mesh_as_trimesh()
+    scale = np.asarray(obj.get_scale(), dtype=np.float64)
+    local2world = np.asarray(obj.get_local2world_mat(), dtype=np.float64)
+    # mesh_as_trimesh() pre-multiplies vertices by scale. Undo that before
+    # applying the complete object transform, matching merge_scene_meshes().
+    vertices_local = np.asarray(mesh.vertices, dtype=np.float64) / np.where(np.abs(scale) > 1e-8, scale, 1.0)
+    return vertices_local @ local2world[:3, :3].T + local2world[:3, 3]
+
+
+def mesh_object_world_bounds(obj: bproc.types.MeshObject) -> tuple[np.ndarray, np.ndarray]:
+    """Return tight world-space bounds from rendered mesh vertices."""
+    vertices_world = mesh_object_world_vertices(obj)
+    if not len(vertices_world) or not np.isfinite(vertices_world).all():
+        raise ValueError(f"Invalid rendered mesh vertices for {obj.get_name()}")
+    return vertices_world.min(axis=0), vertices_world.max(axis=0)
+
+
+def rotated_bounds_at_origin(obj: bproc.types.MeshObject, rotation: np.ndarray) -> np.ndarray:
+    """Compute scaled, rotated bounds from the normalization-time geometry bounds."""
+    if obj.has_cp("placement_bounds_min") and obj.has_cp("placement_bounds_max"):
+        bounds_min = np.asarray(obj.get_cp("placement_bounds_min"), dtype=np.float64)
+        bounds_max = np.asarray(obj.get_cp("placement_bounds_max"), dtype=np.float64)
+        corners = np.array(
+            [
+                [x, y, z]
+                for x in (bounds_min[0], bounds_max[0])
+                for y in (bounds_min[1], bounds_max[1])
+                for z in (bounds_min[2], bounds_max[2])
+            ]
+        )
+        corners *= np.asarray(obj.get_scale(), dtype=np.float64)
+        transform = trimesh.transformations.euler_matrix(*rotation)
+        return trimesh.transform_points(corners, transform)
+
+    # Fallback for objects created outside this renderer's load/normalize path.
+    obj.set_rotation_euler(rotation)
+    obj.set_location([0.0, 0.0, 0.0])
+    bpy.context.view_layer.update()
+    return np.asarray(obj.get_bound_box(), dtype=np.float64)
+
+
+def placement_bounds_compatible(
+    obj: bproc.types.MeshObject,
+    cfg: "Config",
+    probe_rotation: np.ndarray,
+) -> bool:
+    """Reject assets whose evaluated bounds do not match normalized placement bounds."""
+    if not (obj.has_cp("placement_bounds_min") and obj.has_cp("placement_bounds_max")):
+        return True
+
+    expected_probe = rotated_bounds_at_origin(obj, probe_rotation)
+    obj.set_rotation_euler(probe_rotation)
+    obj.set_location([0.0, 0.0, 0.0])
+    bpy.context.view_layer.update()
+    evaluated_probe = np.asarray(obj.get_bound_box(), dtype=np.float64)
+    expected_extent = float(np.ptp(expected_probe, axis=0).max())
+    evaluated_extent = float(np.ptp(evaluated_probe, axis=0).max())
+    bounds_ratio = evaluated_extent / expected_extent if expected_extent > 0 else float("inf")
+    ratio_limit = cfg.placement_bounds_ratio_limit
+    compatible = (
+        np.isfinite(expected_probe).all()
+        and np.isfinite(evaluated_probe).all()
+        and 1.0 / ratio_limit <= bounds_ratio <= ratio_limit
+    )
+    if not compatible:
+        obj.blender_obj.hide_render = True
+        obj.blender_obj.hide_viewport = True
+        logger.warning(
+            f"Placement rejected transform-incompatible {obj.get_name()}: "
+            f"evaluated_extent={evaluated_extent:.6g}, expected_extent={expected_extent:.6g}, "
+            f"ratio={bounds_ratio:.6g}"
+        )
+    return compatible
+
+
+def sample_pile_drop_pose(
+    obj: bproc.types.MeshObject,
+    cfg: "Config",
+    bounds_xy: tuple[float, float],
+    target_bottom: float,
+) -> np.ndarray | None:
+    """Sample a rotated pile-drop pose whose world AABB starts inside the spawn region."""
+    if cfg.upright:
+        x_rotation = upright_x_rotation_for_object(
+            obj,
+            cfg.upright_x_rotation,
+            cfg.upright_x_rotation_path_overrides,
+        )
+        rotation = np.array([np.deg2rad(x_rotation), 0.0, np.random.uniform(0.0, 2.0 * np.pi)])
+    elif cfg.rotation:
+        rotation = np.asarray(bproc.sampler.uniformSO3(), dtype=np.float64)
+    else:
+        rotation = np.zeros(3)
+    obj.set_rotation_euler(rotation)
+    bounds = rotated_bounds_at_origin(obj, rotation)
+    if not np.isfinite(bounds).all():
+        return None
+    bounds_min = bounds.min(axis=0)
+    bounds_max = bounds.max(axis=0)
+    x_range = (bounds_xy[0] - bounds_min[0], bounds_xy[1] - bounds_max[0])
+    y_range = (bounds_xy[0] - bounds_min[1], bounds_xy[1] - bounds_max[1])
+    if cfg.pile_center_radius is not None:
+        radius = cfg.pile_center_radius
+        x_range = (max(x_range[0], -radius), min(x_range[1], radius))
+        y_range = (max(y_range[0], -radius), min(y_range[1], radius))
+    if x_range[0] > x_range[1] or y_range[0] > y_range[1]:
+        return None
+    translation = np.array(
+        [
+            np.random.uniform(*x_range),
+            np.random.uniform(*y_range),
+            target_bottom - bounds_min[2],
+        ]
+    )
+    obj.set_location(translation)
+    return bounds + translation
+
+
+def place_objects_surface_aabb(
+    objs: list[bproc.types.MeshObject],
+    cfg: "Config",
+    bounds_xy: tuple[float, float],
+    spawn_height: tuple[float, float],
+    max_tries: int = 100,
+) -> list[bproc.types.MeshObject]:
+    """Place objects upright with disjoint world AABBs before rigid-body setup."""
+    placed: list[bproc.types.MeshObject] = []
+    occupied_xy: list[tuple[np.ndarray, np.ndarray]] = []
+
+    def probe_rotation(obj: bproc.types.MeshObject) -> np.ndarray:
+        x_rotation = upright_x_rotation_for_object(
+            obj,
+            cfg.upright_x_rotation,
+            cfg.upright_x_rotation_path_overrides,
+        )
+        return np.array([np.deg2rad(x_rotation), 0.0, 0.0])
+
+    def footprint_area(obj: bproc.types.MeshObject) -> float:
+        bounds = rotated_bounds_at_origin(obj, probe_rotation(obj))
+        extent = np.ptp(bounds, axis=0)
+        return float(extent[0] * extent[1]) if np.isfinite(extent).all() else float("inf")
+
+    for obj in sorted(objs, key=footprint_area, reverse=True):
+        obj.blender_obj.hide_render = False
+        obj.blender_obj.hide_viewport = False
+        object_probe_rotation = probe_rotation(obj)
+        if not placement_bounds_compatible(obj, cfg, object_probe_rotation):
+            continue
+        success = False
+        attempted_centers: list[np.ndarray] = []
+        last_bounds = np.empty((0, 3))
+        for _ in range(max_tries):
+            if cfg.upright:
+                x_rotation = upright_x_rotation_for_object(
+                    obj,
+                    cfg.upright_x_rotation,
+                    cfg.upright_x_rotation_path_overrides,
+                )
+                rotation = np.array([np.deg2rad(x_rotation), 0.0, np.random.uniform(0.0, 2.0 * np.pi)])
+            elif cfg.rotation:
+                rotation = bproc.sampler.uniformSO3()
+            else:
+                rotation = np.zeros(3)
+            obj.set_rotation_euler(rotation)
+
+            bounds = rotated_bounds_at_origin(obj, rotation)
+            last_bounds = bounds
+            bounds_min = bounds.min(axis=0)
+            bounds_max = bounds.max(axis=0)
+            x_range = (bounds_xy[0] - bounds_min[0], bounds_xy[1] - bounds_max[0])
+            y_range = (bounds_xy[0] - bounds_min[1], bounds_xy[1] - bounds_max[1])
+            if x_range[0] > x_range[1] or y_range[0] > y_range[1]:
+                continue
+
+            x = np.random.uniform(*x_range)
+            y = np.random.uniform(*y_range)
+            target_bottom = np.random.uniform(*spawn_height)
+            translation = np.array([x, y, target_bottom - bounds_min[2]])
+            obj.set_location(translation)
+            candidate = bounds + translation
+            candidate_min = candidate.min(axis=0)
+            candidate_max = candidate.max(axis=0)
+            attempted_centers.append(0.5 * (candidate_min + candidate_max))
+            last_bounds = candidate
+            separated = all(
+                candidate_max[0] + cfg.placement_min_distance <= other_min[0]
+                or other_max[0] + cfg.placement_min_distance <= candidate_min[0]
+                or candidate_max[1] + cfg.placement_min_distance <= other_min[1]
+                or other_max[1] + cfg.placement_min_distance <= candidate_min[1]
+                for other_min, other_max in occupied_xy
+            )
+            if separated:
+                occupied_xy.append((candidate_min[:2], candidate_max[:2]))
+                placed.append(obj)
+                success = True
+                break
+
+        if not success:
+            obj.blender_obj.hide_render = True
+            obj.blender_obj.hide_viewport = True
+            centers = np.asarray(attempted_centers)
+            center_range = (
+                (centers.min(axis=0).tolist(), centers.max(axis=0).tolist()) if centers.size else (None, None)
+            )
+            logger.warning(
+                f"AABB placement rejected {obj.get_name()}: "
+                f"extent={np.ptp(last_bounds, axis=0).tolist()}, "
+                f"scale={np.asarray(obj.get_scale()).tolist()}, "
+                f"sampled_center_range={center_range}, "
+                f"occupied={[(low.tolist(), high.tolist()) for low, high in occupied_xy]}"
+            )
+
+    return placed
 
 
 def sequential_drop_objects(
@@ -739,7 +1165,7 @@ def sequential_drop_objects(
     drop_margin: tuple[float, float] = (0.02, 0.1),
     batch_size: int = 1,
     settle_time: float = 1.0,
-) -> None:
+) -> list[bproc.types.MeshObject]:
     """Drop objects sequentially with physics settling between each (VGN-style pile generation).
 
     Args:
@@ -752,55 +1178,164 @@ def sequential_drop_objects(
         batch_size: Number of objects to drop per physics step (1 = true sequential)
         settle_time: Seconds to simulate per batch
     """
+    del plane, walls
     dropped_objs: list[bproc.types.MeshObject] = []
     pile_height = 0.0  # Track current pile height
 
     # Process in batches
     for i in range(0, len(objs), batch_size):
         batch = objs[i : i + batch_size]
+        placed_batch: list[bproc.types.MeshObject] = []
+        spawn_top = pile_height
 
-        # Spawn batch at random positions above current pile
+        # Objects in one batch are vertically separated. This permits overlapping
+        # XY drop paths without starting Bullet from intersecting collision hulls.
         for obj in batch:
-            xy = np.random.uniform(bounds_xy[0], bounds_xy[1], 2)
-            # Spawn just above current pile height
-            z = pile_height + np.random.uniform(drop_margin[0], drop_margin[1])
-            obj.set_location([xy[0], xy[1], z])
-
-            # Random rotation
-            if cfg.upright:
-                # Only rotate around Z axis
-                angle = np.random.uniform(0, 2 * np.pi)
-                obj.set_rotation_euler([0, 0, angle])
-            else:
-                # Full SO3 rotation
-                obj.set_rotation_euler(bproc.sampler.uniformSO3())
+            obj.blender_obj.hide_render = False
+            obj.blender_obj.hide_viewport = False
+            if not placement_bounds_compatible(obj, cfg, np.zeros(3)):
+                continue
+            target_bottom = spawn_top + np.random.uniform(drop_margin[0], drop_margin[1])
+            world_bounds = sample_pile_drop_pose(obj, cfg, bounds_xy, target_bottom)
+            if world_bounds is None:
+                obj.blender_obj.hide_render = True
+                obj.blender_obj.hide_viewport = True
+                logger.warning(f"Pile placement rejected oversized or non-finite {obj.get_name()}")
+                continue
+            spawn_top = float(world_bounds[:, 2].max()) + cfg.placement_min_distance
+            obj.set_cp("pile_drop_batch", i // batch_size)
 
             # Enable rigidbody with proper decomposition (same logic as volume/surface)
             enable_rigidbody_with_decomposition(obj, cfg)
+            placed_batch.append(obj)
+
+        if not placed_batch:
+            continue
 
         # Run physics for this batch
         bproc.object.simulate_physics_and_fix_final_poses(
             min_simulation_time=settle_time,
-            max_simulation_time=settle_time + 1.0,
-            check_object_interval=0.25,
-            substeps_per_frame=25,
-            solver_iters=20,
+            max_simulation_time=max(
+                settle_time + cfg.physics_check_interval,
+                min(cfg.physics_max_simulation_time, settle_time * 3.0),
+            ),
+            check_object_interval=cfg.physics_check_interval,
+            substeps_per_frame=cfg.physics_substeps_per_frame,
+            solver_iters=cfg.physics_solver_iters,
         )
 
         # Track dropped objects and update pile height
-        dropped_objs.extend(batch)
+        dropped_objs.extend(placed_batch)
         pile_height = max(obj.get_bound_box()[:, 2].max() for obj in dropped_objs)
 
         logger.debug(
             f"Dropped batch {i // batch_size + 1}/{(len(objs) + batch_size - 1) // batch_size}, pile_height={pile_height:.3f}"
         )
 
+    return dropped_objs
+
+
+def correct_objects_below_floor(
+    objs: list[bproc.types.MeshObject],
+    floor_z: float = 0.0,
+    tolerance: float = 1e-4,
+) -> dict[str, float]:
+    """Lift visible objects whose rendered geometry penetrates the floor."""
+    corrections: dict[str, float] = {}
+    for obj in objs:
+        if is_render_hidden(obj):
+            continue
+        bpy.context.view_layer.update()
+        bounds_min, _ = mesh_object_world_bounds(obj)
+        min_z = float(bounds_min[2])
+        correction = floor_z - min_z
+        if correction <= tolerance:
+            continue
+        location = np.asarray(obj.get_location(), dtype=np.float64)
+        location[2] += correction
+        obj.set_location(location)
+        obj.set_cp("physics_floor_correction", correction)
+        corrections[obj.get_name()] = correction
+    if corrections:
+        bpy.context.view_layer.update()
+        logger.warning(
+            f"Lifted {len(corrections)} penetrating render objects; max_correction={max(corrections.values()):.6f}m"
+        )
+    return corrections
+
+
+def reject_unstable_physics_objects(objs: list[bproc.types.MeshObject], cfg: "Config") -> dict[str, str]:
+    """Hide objects whose post-physics render bounds indicate a simulation launch."""
+    rejected: dict[str, str] = {}
+    for obj in objs:
+        if is_render_hidden(obj):
+            continue
+        bpy.context.view_layer.update()
+        bounds = np.asarray(obj.get_bound_box(), dtype=np.float64)
+        if not np.isfinite(bounds).all():
+            reason = "non_finite_bounds"
+        else:
+            bounds_min = bounds.min(axis=0)
+            bounds_max = bounds.max(axis=0)
+            center = 0.5 * (bounds_min + bounds_max)
+            reason = ""
+            if cfg.physics_reject_max_abs_xy is not None and np.max(np.abs(center[:2])) > cfg.physics_reject_max_abs_xy:
+                reason = "xy_escape"
+            elif cfg.physics_reject_min_z is not None and bounds_min[2] < cfg.physics_reject_min_z:
+                reason = "below_floor_escape"
+            elif cfg.physics_reject_max_z is not None and bounds_max[2] > cfg.physics_reject_max_z:
+                reason = "height_escape"
+        if not reason:
+            continue
+        if obj.has_rigidbody_enabled():
+            obj.disable_rigidbody()
+        obj.blender_obj.hide_render = True
+        obj.blender_obj.hide_viewport = True
+        obj.set_cp("physics_rejection_reason", reason)
+        rejected[obj.get_name()] = reason
+    if rejected:
+        logger.warning(f"Rejected {len(rejected)} post-physics outliers: {rejected}")
+    return rejected
+
+
+def sample_hdri_rotation_euler(
+    object_path: Path | str | None,
+    randomize_azimuth: bool,
+) -> np.ndarray:
+    """Sample one HDRI rotation while preserving the legacy OBJ axis conversion."""
+    rotation = np.zeros(3, dtype=np.float64)
+    if object_path is not None and Path(object_path).suffix == ".obj":
+        rotation[0] = np.pi / 2
+    if randomize_azimuth:
+        rotation[2] = np.random.uniform(0.0, 2.0 * np.pi)
+    return rotation
+
+
+def sample_hdri_path(cfg: Config) -> str:
+    """Sample a Haven HDRI, optionally restricted to an explicit asset allowlist."""
+    if cfg.hdri_path is None:
+        raise ValueError("hdri_path must be configured before sampling an HDRI")
+    if not cfg.hdri_assets:
+        return bproc.loader.get_random_world_background_hdr_img_path_from_haven(cfg.hdri_path)
+
+    root = Path(cfg.hdri_path)
+    candidates: list[Path] = []
+    for asset in cfg.hdri_assets:
+        asset_dir = root / "hdris" / asset
+        if not asset_dir.is_dir():
+            asset_dir = root / asset
+        candidates.extend(sorted(asset_dir.glob("*.hdr")))
+        candidates.extend(sorted(asset_dir.glob("*.exr")))
+    if not candidates:
+        raise FileNotFoundError(f"No allowlisted HDRIs found below {root}")
+    return str(random.choice(candidates))
+
 
 def set_random_hdri(cfg: Config):
     world = cast(Any, bpy.context.scene).world
     nodes = world.node_tree.nodes
     texture_node = Utility.get_the_one_node_with_type(nodes, "TexEnvironment")
-    hdri_path = bproc.loader.get_random_world_background_hdr_img_path_from_haven(cfg.hdri_path)
+    hdri_path = sample_hdri_path(cfg)
     logger.debug(f"Setting HDRI image to {hdri_path}")
     texture_node.image = bpy.data.images.load(hdri_path, check_existing=True)
 
@@ -818,21 +1353,97 @@ def set_random_light(cfg: Config):
         num_lights = cfg.lights
     else:
         num_lights = int(np.random.randint(cfg.lights[0], cfg.lights[1]))
+    total_energy = float(np.random.uniform(*cfg.light_energy))
     for i in range(num_lights):
-        light = bproc.types.Light(name=f"Light {i}")
+        light = bproc.types.Light(light_type=cfg.light_type, name=f"Light {i}")
         location = bproc.sampler.shell(
             center=(0, 0, 0),
-            radius_min=5,
-            radius_max=10,
-            elevation_min=1,
-            elevation_max=89,
+            radius_min=cfg.light_radius[0],
+            radius_max=cfg.light_radius[1],
+            elevation_min=cfg.light_elevation[0],
+            elevation_max=cfg.light_elevation[1],
         )
         light.set_location(location)
-        light.set_color(np.random.uniform([0.5, 0.5, 0.5], [1, 1, 1]))
-        light.set_energy(np.random.uniform(250 // num_lights))
+        if cfg.light_type == "AREA":
+            light.set_rotation_mat(bproc.camera.rotation_from_forward_vec(-np.asarray(location)))
+            light.blender_obj.data.shape = "DISK"
+            light.blender_obj.data.size = float(np.random.uniform(*cfg.light_size))
+        else:
+            light.set_radius(float(np.random.uniform(*cfg.light_size)))
+        if cfg.light_color_mode == "neutral":
+            blend = float(np.random.uniform())
+            warm = np.array([1.0, 0.88, 0.75])
+            cool = np.array([0.82, 0.90, 1.0])
+            color = (1.0 - blend) * warm + blend * cool
+        else:
+            color = np.random.uniform([0.5, 0.5, 0.5], [1.0, 1.0, 1.0])
+        light.set_color(color)
+        light.set_energy(total_energy / num_lights)
         logger.debug(
             f"Created light {i} at location {light.get_location()} with {light.get_color()} and strength {light.get_energy()}"
         )
+
+
+def randomize_tabletop_surface(material: bproc.types.Material) -> None:
+    """Apply bounded support-surface appearance variation without changing geometry."""
+    colors = np.array(
+        [
+            [0.16, 0.18, 0.20, 1.0],
+            [0.35, 0.38, 0.40, 1.0],
+            [0.62, 0.61, 0.57, 1.0],
+            [0.72, 0.66, 0.55, 1.0],
+            [0.78, 0.79, 0.76, 1.0],
+        ]
+    )
+    material.set_principled_shader_value("Base Color", random.choice(colors).tolist())
+    material.set_principled_shader_value("Specular IOR Level", float(np.random.uniform(0.2, 0.5)))
+    material.set_principled_shader_value("Roughness", float(np.random.uniform(0.35, 0.85)))
+    material.set_principled_shader_value("Metallic", 0.0)
+
+
+def materialless_object_profile_for_path(
+    path: str,
+    overrides: dict[str, Literal["fixed", "industrial"]] | None,
+) -> Literal["fixed", "industrial"]:
+    """Resolve one source-specific material fallback from an asset path."""
+    matches = {profile for token, profile in (overrides or {}).items() if token.lower() in path.lower()}
+    if len(matches) > 1:
+        raise ValueError(f"Conflicting material-less profiles match asset path {path!r}")
+    return matches.pop() if matches else "fixed"
+
+
+def ensure_render_material(
+    obj: bproc.types.MeshObject,
+    profile: Literal["fixed", "industrial"] = "fixed",
+) -> None:
+    """Give material-less imports a visible slot that domain randomization can modify."""
+    if obj.has_materials():
+        return
+    material = obj.new_material(f"{obj.get_name()} default")
+    if profile == "industrial":
+        base_color, metallic = random.choice(
+            (
+                ([0.05, 0.055, 0.06, 1.0], 0.0),
+                ([0.24, 0.27, 0.30, 1.0], 0.0),
+                ([0.72, 0.73, 0.70, 1.0], 0.0),
+                ([0.82, 0.80, 0.72, 1.0], 0.0),
+                ([0.48, 0.055, 0.035, 1.0], 0.0),
+                ([0.035, 0.14, 0.42, 1.0], 0.0),
+                ([0.045, 0.25, 0.10, 1.0], 0.0),
+                ([0.65, 0.42, 0.025, 1.0], 0.0),
+                ([0.50, 0.53, 0.57, 1.0], 1.0),
+            )
+        )
+        material.set_principled_shader_value("Base Color", base_color)
+        material.set_principled_shader_value("Specular IOR Level", float(np.random.uniform(0.2, 0.5)))
+        material.set_principled_shader_value("Roughness", float(np.random.uniform(0.25, 0.85)))
+        material.set_principled_shader_value("Metallic", metallic)
+    else:
+        material.set_principled_shader_value("Base Color", [0.35, 0.38, 0.40, 1.0])
+        material.set_principled_shader_value("Specular IOR Level", 0.3)
+        material.set_principled_shader_value("Roughness", 0.6)
+        material.set_principled_shader_value("Metallic", 0.0)
+    obj.set_cp("materialless_fallback_profile", profile)
 
 
 def replace_materials(
@@ -876,10 +1487,10 @@ def randomize_materials(
                     material.set_principled_shader_value("Metallic", np.random.uniform())
                     log_str += f"metallic={material.get_principled_shader_value('Metallic')} "
 
-                    if np.random.uniform() < color:
-                        c = np.random.uniform(size=3)
-                        log_str += f"color={c}"
-                        material.set_principled_shader_value("Base Color", [*list(c), 1])
+                if np.random.uniform() < color:
+                    c = np.random.uniform(size=3)
+                    log_str += f"color={c}"
+                    material.set_principled_shader_value("Base Color", [*list(c), 1])
 
                 if np.random.uniform() < displacement:
                     if isinstance(
@@ -921,9 +1532,14 @@ def sample_from_file_weighted(file_path: Path, n_samples: int, alpha: float = 0.
         raise ValueError("Path format is not as expected for class ID extraction.") from error
 
     class_counts = Counter(classes)
-    sample_weights = [(1 / class_counts[c]) ** alpha for c in classes]
+    sample_weights = np.asarray([(1 / class_counts[c]) ** alpha for c in classes], dtype=np.float64)
 
-    return random.choices(population=obj_paths, weights=sample_weights, k=n_samples)
+    if n_samples >= len(obj_paths):
+        return random.sample(obj_paths, k=len(obj_paths))
+
+    sample_weights = sample_weights / sample_weights.sum()
+    indices = np.random.choice(len(obj_paths), size=n_samples, replace=False, p=sample_weights)
+    return [obj_paths[int(index)] for index in indices]
 
 
 def merge_scene_meshes(
@@ -949,6 +1565,9 @@ def merge_scene_meshes(
     w2c = camera_extrinsic
 
     for obj in objs:
+        if is_render_hidden(obj):
+            logger.debug(f"Skipping render-hidden object in merged sensor mesh: {obj.get_name()}")
+            continue
         mesh = obj.mesh_as_trimesh()
         scale = np.array(obj.get_scale())
         local2world = obj.get_local2world_mat()
@@ -983,6 +1602,134 @@ def merge_scene_meshes(
         np.vstack(all_verts).astype(np.float32),
         np.vstack(all_faces).astype(np.int32),
     )
+
+
+def bake_blender_object_world_transform(blender_obj: Any) -> None:
+    from mathutils import Matrix
+
+    world_transform = blender_obj.matrix_world.copy()
+    if getattr(blender_obj, "animation_data", None) is not None:
+        blender_obj.animation_data_clear()
+    for constraint in list(getattr(blender_obj, "constraints", [])):
+        blender_obj.constraints.remove(constraint)
+    blender_obj.data = blender_obj.data.copy()
+    blender_obj.data.transform(world_transform)
+    blender_obj.parent = None
+    blender_obj.matrix_world = Matrix.Identity(4)
+
+
+def import_gltf_as_mesh_object(path: str) -> MeshObject:
+    before = set(cast(list[Any], cast(Any, bpy.context.scene).objects))
+    bpy.ops.import_scene.gltf(filepath=path)
+    imported = [obj for obj in cast(list[Any], cast(Any, bpy.context.scene).objects) if obj not in before]
+    mesh_objs = [obj for obj in imported if obj.type == "MESH"]
+    if not mesh_objs:
+        raise RuntimeError(f"No mesh objects imported from {path}")
+    for mesh_obj in mesh_objs:
+        bake_blender_object_world_transform(mesh_obj)
+    if len(mesh_objs) == 1:
+        return MeshObject(mesh_objs[0])
+
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    active = mesh_objs[0]
+    for obj in mesh_objs:
+        obj.select_set(True)
+    cast(Any, bpy.context.view_layer).objects.active = active
+    with bpy.context.temp_override(
+        active_object=active,
+        selected_objects=mesh_objs,
+        selected_editable_objects=mesh_objs,
+    ):
+        bpy.ops.object.join()
+    return MeshObject(cast(Any, bpy.context.view_layer).objects.active)
+
+
+def normalization_parameters(bounds: np.ndarray) -> tuple[np.ndarray, float]:
+    bounds = np.asarray(bounds, dtype=np.float64)
+    extent = float(np.max(bounds[1] - bounds[0]))
+    if bounds.shape != (2, 3) or not np.isfinite(bounds).all() or not np.isfinite(extent) or extent <= 0:
+        raise ValueError(f"Invalid mesh bounds for normalization: {bounds}")
+    scale = 1.0 / extent
+    translation = -bounds.mean(axis=0) * scale
+    return translation, scale
+
+
+def loader_category_name_from_path(path: Path) -> tuple[str, str] | None:
+    parts = path.parts
+    for index in range(len(parts) - 2, -1, -1):
+        if parts[index].isdigit() and len(parts[index]) == 8 and index + 1 < len(parts):
+            return parts[index], parts[index + 1]
+    return None
+
+
+def _node_output_by_name(node: Any, name: str) -> Any:
+    try:
+        return node.outputs[name]
+    except (KeyError, TypeError):
+        for output in node.outputs:
+            if output.name == name or getattr(output, "identifier", None) == name:
+                return output
+        raise
+
+
+def _enabled_node_output_by_name(node: Any, name: str) -> Any:
+    output = _node_output_by_name(node, name)
+    if not getattr(output, "enabled", True):
+        raise KeyError(name)
+    return output
+
+
+def enable_segmentation_output_compat(
+    map_by: str | list[str] = "category_id",
+    default_values: dict[str, Any] | None = None,
+    pass_alpha_threshold: float = 0.05,
+    output_dir: str | None = None,
+    file_prefix: str = "segmap_",
+    output_key: str = "segmap",
+) -> None:
+    from blenderproc.python.utility.Utility import Utility
+
+    for index, mesh_obj in enumerate(bpy.context.scene.objects):
+        if getattr(mesh_obj, "type", None) == "MESH":
+            mesh_obj.pass_index = index + 1
+
+    bpy.context.scene.render.use_compositing = True
+    bpy.context.scene.use_nodes = True
+    bpy.context.scene.view_layers["ViewLayer"].use_pass_object_index = True
+    tree = bpy.context.scene.node_tree
+    render_layer_node = Utility.get_the_one_node_with_type(tree.nodes, "CompositorNodeRLayers")
+    if render_layer_node is None:
+        raise RuntimeError("Render Layers compositor node missing")
+    try:
+        object_index_output = _enabled_node_output_by_name(render_layer_node, "IndexOB")
+    except KeyError:
+        render_layer_node = tree.nodes.new("CompositorNodeRLayers")
+        object_index_output = _enabled_node_output_by_name(render_layer_node, "IndexOB")
+
+    if output_dir is None:
+        output_dir = Utility.get_temporary_directory()
+    output_node = tree.nodes.new("CompositorNodeOutputFile")
+    output_node.base_path = output_dir
+    output_node.format.file_format = "OPEN_EXR"
+    output_node.file_slots.values()[0].path = file_prefix
+    Utility.add_output_entry(
+        {
+            "key": output_key,
+            "path": os.path.join(output_dir, file_prefix) + "%04d" + ".exr",
+            "version": "3.0.0",
+            "trim_redundant_channels": True,
+            "is_semantic_segmentation": True,
+            "semantic_segmentation_mapping": map_by,
+            "semantic_segmentation_default_values": default_values,
+        }
+    )
+
+    combine_color = tree.nodes.new("CompositorNodeCombineColor")
+    combine_color.mode = "HSV"
+    tree.links.new(object_index_output, combine_color.inputs[2])
+    tree.links.new(combine_color.outputs["Image"], output_node.inputs["Image"])
+    bpy.context.scene.view_layers["ViewLayer"].pass_alpha_threshold = pass_alpha_threshold
 
 
 def simulate_kinect_depth(
@@ -1063,6 +1810,68 @@ def simulate_kinect_depth(
     return results
 
 
+def right_stereo_camera_pose(cam2world: np.ndarray, baseline: float) -> np.ndarray:
+    """Translate a camera along its local +X axis without changing orientation."""
+    pose = np.asarray(cam2world, dtype=np.float64).copy()
+    if pose.shape != (4, 4) or not np.isfinite(pose).all():
+        raise ValueError("cam2world must be a finite 4x4 matrix")
+    if baseline <= 0:
+        raise ValueError("stereo baseline must be positive")
+    pose[:3, 3] += baseline * pose[:3, 0]
+    return pose
+
+
+def append_right_stereo_camera_poses(baseline: float) -> int:
+    """Append one rectified right-camera pose for each canonical camera pose."""
+    primary_frame_count = int(cast(Any, bpy.context.scene).frame_end)
+    if primary_frame_count <= 0:
+        raise RuntimeError("stereo depth requested without canonical camera poses")
+    primary_poses = [np.asarray(bproc.camera.get_camera_pose(frame)).copy() for frame in range(primary_frame_count)]
+    for frame, pose in enumerate(primary_poses, start=primary_frame_count):
+        bproc.camera.add_camera_pose(right_stereo_camera_pose(pose, baseline), frame=frame)
+    bproc.camera.set_stereo_parameters(
+        interocular_distance=baseline,
+        convergence_mode="PARALLEL",
+        convergence_distance=0.00001,
+    )
+    return primary_frame_count
+
+
+def extract_stereo_depth(
+    data: dict[str, Any],
+    primary_frame_count: int,
+    cfg: "Config",
+) -> None:
+    """Compute SGM depth and remove right-camera outputs from the canonical render data."""
+    colors = data.get("colors")
+    expected_frames = 2 * primary_frame_count
+    if not isinstance(colors, (list, np.ndarray)) or len(colors) != expected_frames:
+        raise RuntimeError(
+            f"stereo RGB output has {len(colors) if colors is not None else 0} frames, expected {expected_frames}"
+        )
+    stereo_pairs = [
+        np.stack((np.asarray(colors[frame])[..., :3], np.asarray(colors[primary_frame_count + frame])[..., :3]))
+        for frame in range(primary_frame_count)
+    ]
+    stereo_depths, _disparities = bproc.postprocessing.stereo_global_matching(
+        stereo_pairs,
+        depth_max=cfg.stereo_depth_max,
+        window_size=cfg.stereo_window_size,
+        num_disparities=cfg.stereo_num_disparities,
+        disparity_filter=False,
+        depth_completion=False,
+    )
+    for depth in stereo_depths:
+        invalid = ~np.isfinite(depth) | (depth <= 0) | (depth >= cfg.stereo_depth_max)
+        depth[invalid] = 0.0
+
+    for key, value in list(data.items()):
+        if isinstance(value, (list, np.ndarray)) and len(value) == expected_frames:
+            data[key] = value[:primary_frame_count]
+    data["stereo_depth"] = stereo_depths
+    cast(Any, bpy.context.scene).frame_end = primary_frame_count
+
+
 def coacd_decomposition(
     obj: MeshObject,
     threshold: float = 0.05,
@@ -1098,12 +1907,18 @@ def coacd_decomposition(
         dtype=np.int32,
     )
 
-    # Compute hash for caching
-    mesh_hash = abs(hash(verts.tobytes() + faces.tobytes()))
+    mesh_hash = decomposition_cache_key(
+        verts,
+        faces,
+        method="coacd",
+        parameters={"threshold": threshold, "format": 2},
+    )
     cache_file = cache_dir / f"{mesh_hash}.obj" if cache_dir else None
+    decomposition_started = time.perf_counter()
 
     # Check cache or run CoACD
     if cache_file and cache_file.exists():
+        obj.set_cp("collision_decomposition_cache_hit", True)
         logger.info(f"Loading cached CoACD for '{obj.get_name()}' from {cache_file}")
         # Deselect all before import to isolate newly imported objects
         bpy.ops.object.select_all(action="DESELECT")
@@ -1113,6 +1928,7 @@ def coacd_decomposition(
         hulls = [o for o in cast(list[Any], cast(Any, bpy.context.scene).objects) if o not in existing_objs]
         logger.info(f"Loaded {len(hulls)} cached hulls for '{obj.get_name()}'")
     else:
+        obj.set_cp("collision_decomposition_cache_hit", False)
         logger.info(
             f"Running CoACD on '{obj.get_name()}': {len(verts)} verts, {len(faces)} tris, threshold={threshold}"
         )
@@ -1135,14 +1951,39 @@ def coacd_decomposition(
             bpy.ops.object.select_all(action="DESELECT")
             for h in hulls:
                 h.select_set(True)
+            temporary_cache_file = cache_file.with_name(f".{cache_file.name}.{os.getpid()}.tmp.obj")
             bpy.ops.wm.obj_export(
-                filepath=str(cache_file),
+                filepath=str(temporary_cache_file),
                 export_selected_objects=True,
             )
+            temporary_cache_file.replace(cache_file)
             logger.info(f"Cached {len(hulls)} hulls for '{obj.get_name()}' to {cache_file}")
 
+    obj.set_cp("collision_decomposition_cache_key", mesh_hash)
+    obj.set_cp("collision_decomposition_part_count", len(hulls))
+    obj.set_cp("collision_decomposition_seconds", time.perf_counter() - decomposition_started)
     bpy.data.meshes.remove(mesh)
     return hulls
+
+
+def decomposition_cache_key(
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    *,
+    method: str,
+    parameters: dict[str, Any],
+) -> str:
+    """Build a stable cache key from local mesh geometry and decomposition settings."""
+    vertices_array = np.ascontiguousarray(vertices, dtype="<f8")
+    faces_array = np.ascontiguousarray(faces, dtype="<i8")
+    digest = hashlib.sha256()
+    digest.update(method.encode("utf-8"))
+    digest.update(json.dumps(parameters, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    digest.update(np.asarray(vertices_array.shape, dtype="<i8").tobytes())
+    digest.update(vertices_array.tobytes())
+    digest.update(np.asarray(faces_array.shape, dtype="<i8").tobytes())
+    digest.update(faces_array.tobytes())
+    return digest.hexdigest()
 
 
 def run(cfg: Config):
@@ -1165,7 +2006,7 @@ def run(cfg: Config):
 
     with stdout_redirected(enabled=cfg.quiet):
         bproc.init()
-        if cfg.seed:
+        if cfg.seed is not None:
             random.seed(cfg.seed)
             np.random.seed(cfg.seed)
 
@@ -1219,6 +2060,7 @@ def run(cfg: Config):
         obj.get_mesh().from_pydata(mesh.vertices, [], mesh.faces)
         if cfg.validate:
             obj.get_mesh().validate()
+        ensure_render_material(obj)
         obj.set_shading_mode(cfg.shading)
         objs = [obj]
     elif object_path is not None and object_path.suffix in [".obj", ".glb", ".gltf"]:
@@ -1234,9 +2076,7 @@ def run(cfg: Config):
 
         with stdout_redirected(enabled=cfg.quiet):
             if object_path.suffix in [".glb", ".gltf"]:
-                bpy.ops.import_scene.gltf(filepath=obj_path_str)
-                bpy.ops.object.join()
-                obj = MeshObject(bpy.context.object)
+                obj = import_gltf_as_mesh_object(obj_path_str)
                 if is_shapenet:
                     obj.set_rotation_euler([-np.pi / 2, 0, 0])
             else:
@@ -1250,6 +2090,11 @@ def run(cfg: Config):
                 if is_shapenet:
                     obj.add_modifier("EDGE_SPLIT")
 
+        ensure_render_material(
+            obj,
+            materialless_object_profile_for_path(obj_path_str, cfg.materialless_object_path_profiles),
+        )
+        obj.set_cp("source_asset_path", obj_path_str)
         obj.set_shading_mode(cfg.shading)
         if is_shapenet:
             obj.set_name(f"{obj_category}_{obj_id}")
@@ -1259,6 +2104,15 @@ def run(cfg: Config):
             obj.set_rotation_euler([np.pi / 2, 0, 0])
             if obj_category == "02958343":
                 obj.get_mesh().flip_normals()
+        else:
+            loader_identity = loader_category_name_from_path(object_path)
+            if loader_identity is None:
+                obj.set_name(object_path.parent.name)
+                obj.set_cp("category_id", 1)
+            else:
+                obj_category, obj_id = loader_identity
+                obj.set_name(f"{obj_category}_{obj_id}_1")
+                obj.set_cp("category_id", int(obj_category))
         objs = [obj]
     elif object_path is not None and object_path.suffix == ".txt":
         if not isinstance(cfg.num_objects, int):
@@ -1281,9 +2135,7 @@ def run(cfg: Config):
 
             with stdout_redirected(enabled=cfg.quiet):
                 if obj_path.suffix in [".glb", ".gltf"]:
-                    bpy.ops.import_scene.gltf(filepath=obj_path_str)
-                    bpy.ops.object.join()
-                    obj = MeshObject(bpy.context.object)
+                    obj = import_gltf_as_mesh_object(obj_path_str)
                     if is_shapenet:
                         obj.set_rotation_euler([-np.pi / 2, 0, 0])
                 else:
@@ -1297,6 +2149,11 @@ def run(cfg: Config):
                     if is_shapenet:
                         obj.add_modifier("EDGE_SPLIT")
 
+            ensure_render_material(
+                obj,
+                materialless_object_profile_for_path(obj_path_str, cfg.materialless_object_path_profiles),
+            )
+            obj.set_cp("source_asset_path", obj_path_str)
             obj.set_shading_mode(cfg.shading)
             if is_shapenet:
                 obj.set_name(f"{obj_category}_{obj_id}_{i + 1}")
@@ -1307,8 +2164,14 @@ def run(cfg: Config):
                 if obj_category == "02958343":
                     obj.get_mesh().flip_normals()
             else:
-                obj.set_name(f"{obj_path.stem.capitalize()} {i + 1}")
-                obj.set_cp("category_id", {i + 1})
+                loader_identity = loader_category_name_from_path(obj_path)
+                if loader_identity is None:
+                    obj.set_name(f"{obj_path.stem.capitalize()} {i + 1}")
+                    obj.set_cp("category_id", i + 1)
+                else:
+                    obj_category, obj_id = loader_identity
+                    obj.set_name(f"{obj_category}_{obj_id}_{i + 1}")
+                    obj.set_cp("category_id", int(obj_category))
             objs.append(obj)
     else:
         suffix = object_path.suffix if object_path is not None else str(cfg.object_path)
@@ -1332,13 +2195,14 @@ def run(cfg: Config):
             cast(Any, bpy.context.view_layer).objects.active = obj.blender_obj
             bpy.ops.mesh.customdata_custom_splitnormals_clear()
 
+        mesh_bounds = np.asarray(obj.mesh_as_trimesh().bounds, dtype=np.float64)
+        placement_bounds = mesh_bounds
         if cfg.normalize:
-            mesh = obj.mesh_as_trimesh()
-            offset = -mesh.bounds.mean(axis=0)
-            scale = 1 / mesh.extents.max()
-            obj.set_location(offset)
+            translation, scale = normalization_parameters(mesh_bounds)
+            obj.set_location(translation)
             obj.set_scale([scale] * 3)
             obj.persist_transformation_into_mesh(rotation=False)
+            placement_bounds = mesh_bounds * scale + translation
 
         if cfg.add_uv:
             obj.add_uv_mapping(projection="smart")
@@ -1346,6 +2210,8 @@ def run(cfg: Config):
         if not callable(cfg.scale):
             raise TypeError("Config.scale must be callable after initialization")
         obj.set_scale(cfg.scale())
+        obj.set_cp("placement_bounds_min", placement_bounds[0].tolist())
+        obj.set_cp("placement_bounds_max", placement_bounds[1].tolist())
         scales.append(obj.get_scale())
 
         if not any(obj.get_materials()):
@@ -1386,14 +2252,27 @@ def run(cfg: Config):
         # to avoid hull children interfering with collision checks
 
     if cfg.cc_material_path:
-        cc_materials = bproc.loader.load_ccmaterials(cfg.cc_material_path, preload=True)
+        cc_materials = bproc.loader.load_ccmaterials(
+            cfg.cc_material_path,
+            used_assets=cfg.cc_material_assets,
+            preload=True,
+        )
 
     with stdout_redirected(enabled=cfg.quiet):
-        if cfg.surface == "plane":
-            plane = bproc.object.create_primitive("PLANE", size=5, location=(0, 0, 0))
+        if cfg.surface in {"plane", "table"}:
+            if cfg.surface == "plane":
+                plane = bproc.object.create_primitive("PLANE", size=cfg.surface_size, location=(0, 0, 0))
+            else:
+                plane = bproc.object.create_primitive(
+                    "CUBE",
+                    location=(0, 0, -cfg.surface_thickness / 2.0),
+                    scale=(cfg.surface_size / 2.0, cfg.surface_size / 2.0, cfg.surface_thickness / 2.0),
+                )
             plane.new_material("Plane Material")
             if cfg.cc_material_path:
                 replace_materials([plane], cc_materials, p=1.0)
+            elif cfg.surface_material_profile == "tabletop":
+                randomize_tabletop_surface(plane.get_materials()[0])
             else:
                 randomize_materials(
                     [plane],
@@ -1414,7 +2293,7 @@ def run(cfg: Config):
                 bounds_xy = cfg.spawn_bounds
             else:
                 # Relative bounds (0-1) - convert to absolute based on plane size
-                plane_half = 2.5  # Half the plane size (plane is size=5)
+                plane_half = cfg.surface_size / 2.0
                 bounds_xy = (
                     -plane_half * cfg.spawn_bounds[1],
                     plane_half * cfg.spawn_bounds[1],
@@ -1425,10 +2304,10 @@ def run(cfg: Config):
                 plane.enable_rigidbody(
                     active=False,
                     collision_shape="BOX",
-                    collision_margin=0.001,
-                    friction=0.5,
-                    linear_damping=0.1,
-                    angular_damping=0.15,
+                    collision_margin=cfg.collision_margin,
+                    friction=cfg.rigidbody_friction,
+                    linear_damping=cfg.linear_damping,
+                    angular_damping=cfg.angular_damping,
                 )
 
             if cfg.placement == "sequential":
@@ -1436,35 +2315,44 @@ def run(cfg: Config):
                 # Drop height is adaptive (just above current pile)
                 logger.info(f"Sequential placement: XY={bounds_xy}")
 
-                # Create containment walls covering the spawn area
-                wall_size = abs(bounds_xy[1]) * 2 + 0.5  # bounds + margin
-                containment_walls = create_containment_walls(size=wall_size, height=1.5, center=(0.0, 0.0))
+                containment_walls = []
+                if cfg.containment_walls:
+                    spawn_half = max(abs(bounds_xy[0]), abs(bounds_xy[1]))
+                    wall_size = 2.0 * (spawn_half + cfg.pile_wall_margin)
+                    containment_walls = create_containment_walls(
+                        size=wall_size,
+                        height=1.5,
+                        center=(0.0, 0.0),
+                    )
 
                 # Drop objects sequentially (adaptive height above pile)
-                sequential_drop_objects(
+                dropped_objects = sequential_drop_objects(
                     objs=objs,
                     cfg=cfg,
                     plane=plane,
                     walls=containment_walls,
                     bounds_xy=bounds_xy,
-                    drop_margin=(0.02, 0.1),  # 2-10cm above current pile
-                    batch_size=1,  # True sequential; increase for speed
-                    settle_time=3.0,
+                    drop_margin=cfg.pile_drop_margin,
+                    batch_size=cfg.pile_batch_size,
+                    settle_time=cfg.pile_settle_time,
                 )
-
-                # Remove walls after all objects dropped
-                bproc.object.delete_multiple(containment_walls)
-                logger.debug("Removed containment walls after sequential dropping")
 
                 # Final settling pass - let whole pile relax (terminates early if already at rest)
-                logger.debug("Running final settling pass for sequential pile")
-                bproc.object.simulate_physics_and_fix_final_poses(
-                    min_simulation_time=0.5,  # Short min; early exit if settled
-                    max_simulation_time=5.0,  # Allow time for complex piles to fully settle
-                    check_object_interval=0.25,
-                    substeps_per_frame=25,
-                    solver_iters=20,
-                )
+                if dropped_objects:
+                    logger.debug("Running final settling pass for sequential pile")
+                    bproc.object.simulate_physics_and_fix_final_poses(
+                        min_simulation_time=cfg.physics_min_simulation_time,
+                        max_simulation_time=cfg.physics_max_simulation_time,
+                        check_object_interval=cfg.physics_check_interval,
+                        substeps_per_frame=cfg.physics_substeps_per_frame,
+                        solver_iters=cfg.physics_solver_iters,
+                    )
+                else:
+                    logger.warning("Skipping final pile settling because placement rejected every object")
+
+                if containment_walls:
+                    bproc.object.delete_multiple(containment_walls)
+                    logger.debug("Removed containment walls after sequential pile settling")
 
                 # Skip later physics block (already handled)
                 containment_walls = []
@@ -1478,6 +2366,8 @@ def run(cfg: Config):
                     bounds_z=spawn_height,
                     rotation=cfg.rotation,
                     upright=cfg.upright,
+                    upright_x_rotation=cfg.upright_x_rotation,
+                    upright_x_rotation_path_overrides=cfg.upright_x_rotation_path_overrides,
                 )
                 results = bproc.object.sample_poses(objs, p_fn, max_tries=100)
                 # Log placement failures
@@ -1496,12 +2386,26 @@ def run(cfg: Config):
                     gap=0.02,
                     rotation=cfg.rotation,
                     upright=cfg.upright,
+                    upright_x_rotation=cfg.upright_x_rotation,
+                    upright_x_rotation_path_overrides=cfg.upright_x_rotation_path_overrides,
                 )
+
+            elif cfg.placement == "surface_aabb":
+                logger.info(f"AABB-safe surface placement: XY={bounds_xy}")
+                placed = place_objects_surface_aabb(
+                    objs=objs,
+                    cfg=cfg,
+                    bounds_xy=bounds_xy,
+                    spawn_height=spawn_height,
+                )
+                failed_count = len(objs) - len(placed)
+                if failed_count > 0:
+                    logger.warning(f"{failed_count}/{len(objs)} objects failed AABB-safe placement (hidden)")
 
             else:
                 # Surface placement (packed-style): sample above surface with distance constraints
                 # Convert bounds_xy to face_sample_range (0-1 fraction of plane)
-                plane_size = 5.0
+                plane_size = cfg.surface_size
                 face_sample_range = (
                     (bounds_xy[0] + plane_size / 2) / plane_size,
                     (bounds_xy[1] + plane_size / 2) / plane_size,
@@ -1512,6 +2416,8 @@ def run(cfg: Config):
                     surface=plane,
                     rotation=cfg.rotation,
                     upright=cfg.upright,
+                    upright_x_rotation=cfg.upright_x_rotation,
+                    upright_x_rotation_path_overrides=cfg.upright_x_rotation_path_overrides,
                     spawn_height=spawn_height,
                     spawn_bounds=face_sample_range,
                 )
@@ -1543,26 +2449,42 @@ def run(cfg: Config):
         if cfg.physics and cfg.placement != "sequential":
             # Enable rigidbody and convex decomposition AFTER pose sampling (BlenderProc recommended order)
             # This prevents hull children from interfering with sample_poses collision checks
-            for obj in objs:
+            physics_objs = [obj for obj in objs if not is_render_hidden(obj)]
+            for obj in physics_objs:
                 enable_rigidbody_with_decomposition(obj, cfg)
 
             # Simulation parameters (Blender defaults: substeps=10, solver_iters=10)
             # Higher values for stability with convex decomposition and stacking
-            bproc.object.simulate_physics_and_fix_final_poses(
-                min_simulation_time=2,
-                max_simulation_time=15,  # Allow time for complex pile settling
-                check_object_interval=0.5,  # Check settling 2x more frequently than default
-                substeps_per_frame=25,  # 2.5x default; stability for multi-contact scenarios
-                solver_iters=20,  # 2x default; better constraint solving for stacking
-                verbose=cfg.verbose,
-            )
+            if physics_objs:
+                bproc.object.simulate_physics_and_fix_final_poses(
+                    min_simulation_time=cfg.physics_min_simulation_time,
+                    max_simulation_time=cfg.physics_max_simulation_time,
+                    check_object_interval=cfg.physics_check_interval,
+                    substeps_per_frame=cfg.physics_substeps_per_frame,
+                    solver_iters=cfg.physics_solver_iters,
+                    verbose=cfg.verbose,
+                )
+            else:
+                logger.warning("Skipping physics because placement rejected every object")
 
         # Remove containment walls after physics simulation
         if containment_walls:
             bproc.object.delete_multiple(containment_walls)
             logger.debug("Removed containment walls after physics simulation")
 
-    bproc.renderer.set_world_background(color=np.ones(4), strength=0 if cfg.hdri_path else 0.1)
+        if cfg.physics and any(
+            value is not None
+            for value in (cfg.physics_reject_max_abs_xy, cfg.physics_reject_min_z, cfg.physics_reject_max_z)
+        ):
+            reject_unstable_physics_objects(objs, cfg)
+
+        if cfg.physics and cfg.correct_floor_penetration and cfg.surface in {"plane", "table"}:
+            correct_objects_below_floor(objs)
+
+    bproc.renderer.set_world_background(
+        color=np.ones(4),
+        strength=0 if cfg.hdri_path else cfg.world_background_strength,
+    )
     bproc.camera.set_resolution(cfg.camera.width, cfg.camera.height)
     bproc.camera.set_intrinsics_from_K_matrix(
         K=cfg.camera.intrinsics,
@@ -1573,18 +2495,27 @@ def run(cfg: Config):
     )
 
     if cfg.hdri_path:
-        hdri_path = bproc.loader.get_random_world_background_hdr_img_path_from_haven(cfg.hdri_path)
+        hdri_path = sample_hdri_path(cfg)
+        hdri_rotation = sample_hdri_rotation_euler(cfg.object_path, cfg.randomize_hdri_rotation)
         bproc.world.set_world_background_hdr_img(
             hdri_path,
             strength=np.random.uniform(0.5, 1.5) if cfg.hdri_strength == "random" else cfg.hdri_strength,
-            rotation_euler=[np.pi / 2, 0, 0] if object_path is not None and object_path.suffix == ".obj" else None,
+            rotation_euler=hdri_rotation,
         )
+        if cfg.scene_metadata is not None:
+            randomization_metadata = cfg.scene_metadata.setdefault("randomization", {})
+            randomization_metadata["selected_hdri"] = Path(hdri_path).stem
+            randomization_metadata["hdri_rotation_euler_rad"] = hdri_rotation.tolist()
     if cfg.lights or cfg.randomize_lights:
         set_random_light(cfg)
     if cfg.replace:
         replace_materials(objs, cc_materials, p=cfg.replace)
     if cfg.cc_material_path:
-        bproc.loader.load_ccmaterials(cfg.cc_material_path, fill_used_empty_materials=True)
+        bproc.loader.load_ccmaterials(
+            cfg.cc_material_path,
+            used_assets=cfg.cc_material_assets,
+            fill_used_empty_materials=True,
+        )
     if cfg.materials or cfg.randomize_materials or cfg.colors or cfg.randomize_colors:
         if cfg.materials or cfg.randomize_materials:
             randomize_materials(
@@ -1598,6 +2529,7 @@ def run(cfg: Config):
         else:
             randomize_materials(objs, specular=0, roughness=0, metallic=0, color=True)
 
+    primary_frame_count = 0
     if cfg.camera.extrinsics is not None:
         if isinstance(cfg.camera.extrinsics, (np.ndarray, list)):
             for frame, pose in enumerate(cfg.camera.extrinsics):
@@ -1642,6 +2574,10 @@ def run(cfg: Config):
                 if bproc.camera.perform_obstacle_in_view_check(cam2world_matrix, {"min": 0.25}, bvh_tree):
                     frame = bproc.camera.add_camera_pose(cam2world_matrix) + 1
 
+        primary_frame_count = int(cast(Any, bpy.context.scene).frame_end)
+        if cfg.stereo_depth:
+            primary_frame_count = append_right_stereo_camera_poses(cfg.stereo_baseline)
+
         if cfg.normals:
             bproc.renderer.enable_normals_output()
         if cfg.depth:
@@ -1649,12 +2585,12 @@ def run(cfg: Config):
         if cfg.diffuse:
             bproc.renderer.enable_diffuse_color_output()
         if cfg.segmentation:
-            bproc.renderer.enable_segmentation_output(
+            enable_segmentation_output_compat(
                 map_by=["category_id", "instance", "name"],
                 default_values={"category_id": 0},
             )
 
-        if cfg.randomize_hdri or cfg.randomize_lights or cfg.randomize_materials:
+        if cfg.randomize_hdri or cfg.randomize_lights or cfg.randomize_materials or cfg.randomize_colors:
             if isinstance(cfg.camera.extrinsics, np.ndarray):
                 n_frames = len(cfg.camera.extrinsics)
             elif isinstance(cfg.camera.extrinsics, int):
@@ -1700,6 +2636,9 @@ def run(cfg: Config):
     else:
         pose = bproc.math.build_transformation_mat(cfg.camera.position, cfg.camera.rotation)
         bproc.camera.add_camera_pose(pose)
+        primary_frame_count = int(cast(Any, bpy.context.scene).frame_end)
+        if cfg.stereo_depth:
+            primary_frame_count = append_right_stereo_camera_poses(cfg.stereo_baseline)
         if cfg.normals:
             bproc.renderer.enable_normals_output()
         if cfg.depth:
@@ -1707,12 +2646,15 @@ def run(cfg: Config):
         if cfg.diffuse:
             bproc.renderer.enable_diffuse_color_output()
         if cfg.segmentation:
-            bproc.renderer.enable_segmentation_output(
+            enable_segmentation_output_compat(
                 map_by=["category_id", "instance", "name"],
                 default_values={"category_id": 0},
             )
         with stdout_redirected(enabled=not cfg.progress or cfg.quiet):
             data = bproc.renderer.render(verbose=cfg.verbose)
+
+    if cfg.stereo_depth:
+        extract_stereo_depth(data, primary_frame_count, cfg)
 
     if cfg.mask:
         masks = list()
@@ -1735,12 +2677,16 @@ def run(cfg: Config):
                 diffuse[mask] = 0
         if cfg.kinect:
             logger.debug("Adding Kinect Azure noise to depth images.")
-            data["kinect"] = bproc.postprocessing.add_kinect_azure_noise(data["depth"], data["colors"])
+            data["kinect"] = bproc.postprocessing.add_kinect_azure_noise(
+                data["depth"],
+                data["colors"],
+                missing_depth_darkness_thres=cfg.kinect_darkness_threshold,
+            )
             for depth, kinect in zip(data["depth"], data["kinect"], strict=False):
                 kinect[depth == 0] = 0
 
         if cfg.kinect_sim:
-            surface_obj = plane if cfg.surface == "plane" else None
+            surface_obj = plane if cfg.surface in {"plane", "table"} else None
             data["kinect_sim"] = simulate_kinect_depth(objs, surface_obj, cfg, len(data["depth"]))
 
     if cfg.writer:
@@ -1787,7 +2733,7 @@ def run(cfg: Config):
             shutil.rmtree(cfg.output_dir / "textures", ignore_errors=True)
 
         frame_data = list()
-        for frame in range(int(cast(Any, bpy.context.scene).frame_end)):
+        for frame in range(primary_frame_count):
             frame_data.append(
                 {
                     "names": [obj.get_name() for obj in objs],
@@ -1801,6 +2747,7 @@ def run(cfg: Config):
                         "opencv",
                     ),
                     "surface": cfg.surface,
+                    "scene_metadata": cfg.scene_metadata,
                 }
             )
         data["data"] = frame_data

@@ -188,6 +188,76 @@ def test_bop_scene_eval_applies_depth_scale_and_pose_millimeters(tmp_path, monke
     np.testing.assert_allclose(item["mesh.obj_poses_cam"][0, :3, 3], np.array([0.0, 0.0, 1.0], dtype=np.float32))
 
 
+def test_bop_scene_eval_keeps_camera_frame_by_default_when_world_pose_exists(tmp_path):
+    root = tmp_path / "bop"
+    scene = root / "gc6d" / "scenes" / "000001"
+    _write_png(scene / "depth" / "000000.png", np.array([[1000]], dtype=np.uint16))
+    _write_json(
+        scene / "scene_camera.json",
+        {
+            "0": {
+                "cam_K": np.eye(3).reshape(-1).tolist(),
+                "depth_scale": 1.0,
+                "cam_R_w2c": np.eye(3).reshape(-1).tolist(),
+                "cam_t_w2c": [1000.0, 2000.0, 3000.0],
+            }
+        },
+    )
+    _write_json(scene / "scene_gt.json", {"0": []})
+
+    dataset = BOPSceneEval(root=root, name="gc6d", split="scenes", load_mesh=False)
+
+    item = dataset[0]
+
+    eye = np.eye(4, dtype=np.float32)
+    np.testing.assert_allclose(item["inputs.cam_to_world"], eye)
+    np.testing.assert_allclose(item["inputs.extrinsic_world"], eye)
+    np.testing.assert_allclose(item["inputs.extrinsic"], eye)
+
+
+def test_bop_scene_eval_can_use_scaled_bop_world_camera_pose(tmp_path):
+    root = tmp_path / "bop"
+    scene = root / "gc6d" / "scenes" / "000001"
+    _write_png(scene / "depth" / "000000.png", np.array([[1000]], dtype=np.uint16))
+    world_to_cam_rot = np.array(
+        [
+            [0.0, -1.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ],
+        dtype=np.float32,
+    )
+    _write_json(
+        scene / "scene_camera.json",
+        {
+            "0": {
+                "cam_K": np.eye(3).reshape(-1).tolist(),
+                "depth_scale": 1.0,
+                "cam_R_w2c": world_to_cam_rot.reshape(-1).tolist(),
+                "cam_t_w2c": [1000.0, 2000.0, 3000.0],
+            }
+        },
+    )
+    _write_json(scene / "scene_gt.json", {"0": []})
+
+    dataset = BOPSceneEval(
+        root=root,
+        name="gc6d",
+        split="scenes",
+        load_mesh=False,
+        use_scene_camera_world=True,
+    )
+
+    item = dataset[0]
+
+    expected_world_to_cam = np.eye(4, dtype=np.float32)
+    expected_world_to_cam[:3, :3] = world_to_cam_rot
+    expected_world_to_cam[:3, 3] = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+    np.testing.assert_allclose(item["inputs.extrinsic_world"], expected_world_to_cam)
+    np.testing.assert_allclose(item["inputs.extrinsic"], expected_world_to_cam)
+    np.testing.assert_allclose(item["inputs.cam_to_world"], np.linalg.inv(expected_world_to_cam), atol=1e-6)
+
+
 def test_bop_scene_eval_all_missing_masks_keeps_empty_mask_shape_and_counts(tmp_path):
     root = tmp_path / "bop"
     scene = root / "tless" / "test_primesense" / "000001"
@@ -746,6 +816,44 @@ def test_bop_scene_eval_uses_deterministic_view_when_sampling_one_per_scene(tmp_
 
     assert [sample.ann_id for sample in first.samples] == ["000002"]
     assert [sample.ann_id for sample in second.samples] == ["000002"]
+
+
+def test_bop_scene_eval_filters_ann_ids_by_modulo(tmp_path):
+    root = tmp_path / "bop"
+    scene = root / "graspclutter" / "scenes" / "000001"
+    for frame_id in range(1, 9):
+        _write_png(scene / "depth" / f"{frame_id:06d}.png", np.ones((1, 1), dtype=np.uint16))
+    _write_json(
+        scene / "scene_camera.json",
+        {str(frame_id): {"cam_K": np.eye(3).reshape(-1).tolist(), "depth_scale": 1.0} for frame_id in range(1, 9)},
+    )
+    _write_json(scene / "scene_gt.json", {str(frame_id): [] for frame_id in range(1, 9)})
+
+    dataset = BOPSceneEval(
+        root=root,
+        name="graspclutter",
+        split="scenes",
+        ann_id_mod=4,
+        ann_id_remainder=3,
+        load_mesh=False,
+    )
+
+    assert [sample.ann_id for sample in dataset.samples] == ["000003", "000007"]
+
+
+def test_bop_scene_eval_rejects_ann_id_remainder_without_modulus(tmp_path):
+    root = tmp_path / "bop"
+    scene = root / "graspclutter" / "scenes" / "000001"
+    _write_png(scene / "depth" / "000003.png", np.ones((1, 1), dtype=np.uint16))
+
+    with pytest.raises(ValueError, match="ann_id_mod"):
+        BOPSceneEval(
+            root=root,
+            name="graspclutter",
+            split="scenes",
+            ann_id_remainder=3,
+            load_mesh=False,
+        )
 
 
 def test_bop_scene_eval_uses_bop_test_targets_when_available(tmp_path):

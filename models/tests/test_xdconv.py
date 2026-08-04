@@ -131,7 +131,8 @@ class TestXDConv:
         ).cuda()
         x = (torch.rand(1, 8, 100).cuda(), [torch.rand(1, 8, 64, 64).cuda()] * 3, torch.rand(1, 8, 32, 32, 32).cuda())
         p = torch.rand(1, 100, 3).cuda()
-        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        autocast_dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
+        with torch.autocast(device_type="cuda", dtype=autocast_dtype):
             x = xdconv(x, p)
         points, planes, grid = x
         assert points.shape == (1, 16, 100)

@@ -45,7 +45,9 @@ def normalize(in_path: Path, out_dir: Path, args: Any):
     mesh = Trimesh(
         *load_mesh(
             in_path, force="mesh", process=args.process, validate=args.process, enable_post_processing=args.process
-        )
+        ),
+        process=args.process,
+        validate=args.process,
     )
     logger.debug(f"Loading mesh took {time.perf_counter() - restart:.2f}s.")
     restart = time.perf_counter()
@@ -153,7 +155,9 @@ def sample(in_path: Path, out_dir: Path, args: Any):
     mesh = Trimesh(
         *load_mesh(
             in_path, force="mesh", process=args.process, validate=args.process, enable_post_processing=args.process
-        )
+        ),
+        process=args.process,
+        validate=args.process,
     )
     if len(mesh.vertices) == 0 or len(mesh.faces) == 0:
         logger.error(f"Error: Mesh {in_path} is empty.")
@@ -206,6 +210,7 @@ def sample(in_path: Path, out_dir: Path, args: Any):
             np.savez_compressed(
                 points_path,
                 points=points[step : step + args.num_points],
+                occupancies=np.packbits(occupancy[step : step + args.num_points]),
                 occupancy=np.packbits(occupancy[step : step + args.num_points]),
             )
         logger.debug(f"Sampled points in {time.perf_counter() - restart:.4f}s.")
@@ -270,7 +275,8 @@ def main():
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging.")
     args = parser.parse_args()
 
-    save_command_and_args_to_file(args.out_dir if args.out_dir else Path.cwd() / "command.txt", args)
+    command_path = args.out_dir / "command.txt" if args.out_dir else Path.cwd() / "command.txt"
+    save_command_and_args_to_file(command_path, args)
 
     # Disable multithreading if multiprocessing is used.
     if args.n_jobs > 1:

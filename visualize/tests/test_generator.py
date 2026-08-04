@@ -36,6 +36,74 @@ class _DummyGeneratorModel(nn.Module):
         return -10.0 * points[..., 0]
 
 
+class _StreamingGeneratorModel(_DummyGeneratorModel):
+    def __init__(self):
+        super().__init__()
+        self.chunk_sizes: list[int] = []
+
+    def predict(self, *args: Any, **kwargs: Any) -> torch.Tensor:
+        raise AssertionError("streaming surface extraction must not call dense predict()")
+
+    def stream_instance_logits(
+        self,
+        *,
+        points: torch.Tensor,
+        points_batch_size: int,
+        **_: Any,
+    ):
+        instance_indices = [3]
+        yield {"instance_indices": instance_indices, "num_points": points.size(1)}
+        for start in range(0, points.size(1), points_batch_size):
+            end = min(start + points_batch_size, points.size(1))
+            chunk = points[:, start:end]
+            self.chunk_sizes.append(end - start)
+            logits = -10.0 * chunk[0, :, 0].unsqueeze(0)
+            yield {"start": start, "end": end, "instance_indices": instance_indices, "logits": logits}
+
+
+class _CurvedStreamingGeneratorModel(_StreamingGeneratorModel):
+    def stream_instance_logits(
+        self,
+        *,
+        points: torch.Tensor,
+        points_batch_size: int,
+        **_: Any,
+    ):
+        instance_indices = [5]
+        yield {"instance_indices": instance_indices, "num_points": points.size(1)}
+        for start in range(0, points.size(1), points_batch_size):
+            end = min(start + points_batch_size, points.size(1))
+            chunk = points[:, start:end]
+            self.chunk_sizes.append(end - start)
+            x = chunk[0, :, 0]
+            # Root is x = 0.2 ** (1 / 3). Linear edge interpolation on a coarse
+            # grid is biased; bracketed secant refinement should query the model
+            # and move points onto the true implicit surface.
+            logits = (x**3 - 0.2).unsqueeze(0)
+            yield {"start": start, "end": end, "instance_indices": instance_indices, "logits": logits}
+
+
+class _NewtonStreamingGeneratorModel(_StreamingGeneratorModel):
+    def stream_instance_logits(
+        self,
+        *,
+        points: torch.Tensor,
+        points_batch_size: int,
+        **_: Any,
+    ):
+        instance_indices = [7]
+        yield {"instance_indices": instance_indices, "num_points": points.size(1)}
+        for start in range(0, points.size(1), points_batch_size):
+            end = min(start + points_batch_size, points.size(1))
+            chunk = points[:, start:end]
+            self.chunk_sizes.append(end - start)
+            x = chunk[0, :, 0]
+            y = chunk[0, :, 1]
+            z = chunk[0, :, 2]
+            logits = (x.square() + 0.5 * y + 0.25 * z - 0.2).unsqueeze(0)
+            yield {"start": start, "end": end, "instance_indices": instance_indices, "logits": logits}
+
+
 def _make_generator(**kwargs: Any) -> Generator:
     return Generator(
         model=cast(Any, _DummyGeneratorModel()),
@@ -75,6 +143,112 @@ def test_generate_grid_predict_path_returns_rectangular_grid():
     # Occupancy rule from dummy model: x < 0 -> positive logit.
     assert float(grid[0, 0, 0]) > 0
     assert float(grid[-1, 0, 0]) < 0
+
+
+def test_generate_surface_per_instance_streaming_uses_chunked_logits():
+    model = _StreamingGeneratorModel()
+    generator = Generator(
+        model=cast(Any, model),
+        resolution=8,
+        padding=0.0,
+        points_batch_size=17,
+        use_skimage=False,
+        bounds=((-1.0, -1.0, -1.0), (1.0, 1.0, 1.0)),
+    )
+    item = {"inputs": torch.zeros((1, 4, 3), dtype=torch.float32)}
+
+    surfaces = generator.generate_surface_per_instance_streaming(item=cast(dict[str, Any], item))
+
+    assert model.chunk_sizes
+    assert max(model.chunk_sizes) <= 17
+    assert len(surfaces) == 1
+    surface = surfaces[0]
+    assert surface["instance_idx"] == 3
+    assert surface["points"].shape[1] == 3
+    assert surface["normals"].shape == surface["points"].shape
+    assert surface["points"].shape[0] > 0
+    np.testing.assert_allclose(surface["points"][:, 0], 0.0, atol=1e-6)
+    np.testing.assert_allclose(np.linalg.norm(surface["normals"], axis=1), 1.0, atol=1e-6)
+
+
+def test_generate_surface_per_instance_streaming_refines_edge_crossings():
+    model = _CurvedStreamingGeneratorModel()
+    generator = Generator(
+        model=cast(Any, model),
+        resolution=8,
+        padding=0.0,
+        points_batch_size=64,
+        use_skimage=False,
+        bounds=((-1.0, -0.5, -0.5), (1.0, 0.5, 0.5)),
+        surface_refinement_steps=6,
+        surface_refinement_mode="secant",
+    )
+    item = {"inputs": torch.zeros((1, 4, 3), dtype=torch.float32)}
+
+    surfaces = generator.generate_surface_per_instance_streaming(item=cast(dict[str, Any], item))
+
+    assert len(surfaces) == 1
+    surface = surfaces[0]
+    expected_x = np.cbrt(0.2)
+    np.testing.assert_allclose(surface["points"][:, 0], expected_x, atol=1e-4)
+
+
+def test_generate_surface_per_instance_streaming_newton_projects_to_field_zero():
+    model = _NewtonStreamingGeneratorModel()
+    item = {"inputs": torch.zeros((1, 4, 3), dtype=torch.float32)}
+    base = Generator(
+        model=cast(Any, model),
+        resolution=8,
+        padding=0.0,
+        points_batch_size=128,
+        use_skimage=False,
+        bounds=((-1.0, -1.0, -1.0), (1.0, 1.0, 1.0)),
+        surface_refinement_mode="linear",
+    )
+    newton = Generator(
+        model=cast(Any, model),
+        resolution=8,
+        padding=0.0,
+        points_batch_size=128,
+        use_skimage=False,
+        bounds=((-1.0, -1.0, -1.0), (1.0, 1.0, 1.0)),
+        surface_refinement_mode="linear",
+        surface_newton_steps=3,
+    )
+
+    base_surface = base.generate_surface_per_instance_streaming(item=cast(dict[str, Any], item))[0]
+    newton_surface = newton.generate_surface_per_instance_streaming(item=cast(dict[str, Any], item))[0]
+
+    def residual(points: np.ndarray) -> np.ndarray:
+        return points[:, 0] ** 2 + 0.5 * points[:, 1] + 0.25 * points[:, 2] - 0.2
+
+    assert np.abs(residual(base_surface["points"])).mean() > 1e-3
+    assert np.abs(residual(newton_surface["points"])).max() < 1e-4
+
+
+def test_generate_surface_per_instance_streaming_autograd_normals_match_field_gradient():
+    model = _NewtonStreamingGeneratorModel()
+    generator = Generator(
+        model=cast(Any, model),
+        resolution=8,
+        padding=0.0,
+        points_batch_size=128,
+        use_skimage=False,
+        bounds=((-1.0, -1.0, -1.0), (1.0, 1.0, 1.0)),
+        surface_refinement_mode="linear",
+        surface_newton_steps=3,
+        surface_normal_mode="autograd",
+    )
+    item = {"inputs": torch.zeros((1, 4, 3), dtype=torch.float32)}
+
+    surface = generator.generate_surface_per_instance_streaming(item=cast(dict[str, Any], item))[0]
+
+    points = surface["points"].astype(np.float64)
+    expected = np.stack([2.0 * points[:, 0], np.full(points.shape[0], 0.5), np.full(points.shape[0], 0.25)], axis=1)
+    expected /= np.linalg.norm(expected, axis=1, keepdims=True)
+    np.testing.assert_allclose(surface["normals"], expected, atol=1e-4)
+    assert surface["surface_newton_steps"] == 3
+    assert surface["surface_normal_mode"] == "autograd"
 
 
 def test_extract_mesh_is_empty_for_fully_negative_grid():

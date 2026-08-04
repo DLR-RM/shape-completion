@@ -1,0 +1,65 @@
+defaults:
+  - tabletop_inst_seg_pcd_3d
+  - _self_
+
+model:
+  arch: dino_inst_rgbd3d
+
+inputs:
+  type: rgbd
+  depth_type: kinect
+  project: true
+
+# --- Architecture parity with the depth-only checkpoint (B2) ---
+# The checkpoint multi_100k_w_0.2_mlp_kinect was trained with these; the wrapper's
+# depth_model must be built identically or the checkpoint will not load.
+multitask: head
+mlp_heads: true
+inputs_weight: 0.2
+
+# --- RGB-D wrapper knobs ---
+rgb_fusion: raw_point
+fusion_mode: gate
+# -10 kept RGB effectively disconnected in early RGB-D runs. -2 gives a
+# non-saturated gate (~0.12 at zero input) while still preserving depth bias.
+fusion_gate_init_bias: -2.0
+rgbd_train_mode: adapter
+freeze_rgb_encoder: true
+# Accept ImageNet-normalized TableTop images and raw GraspNet RGB.
+rgb_image_normalization: auto
+featup_repo: null
+featup_checkpoint: null
+rgb_metric_checkpoint: null
+fusion_max_ratio: 0.1
+query_rgb_tokens: 1024
+rgb_delivery: dual
+rgb_residual_dropout: 0.0
+depth_fusion_dropout: 0.0
+rgb_token_dropout: 0.0
+
+load:
+  keys_to_keep:
+    - index
+    - category.id
+    - category.name
+    - category.index
+    - inputs
+    - inputs.depth
+    - inputs.image
+    - inputs.colors
+    - inputs.pixel_coords
+    - inputs.labels
+    - inputs.width
+    - inputs.height
+    - inputs.intrinsic
+    - inputs.extrinsic
+    - inputs.skip
+    - inputs.name
+    - inputs.path
+    - points
+    - points.occ
+    - points.labels
+    - points.name
+    - points.path
+    - pointcloud
+    - mesh

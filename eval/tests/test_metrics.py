@@ -2,6 +2,7 @@ import pytest
 import torch
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_chamfer():
     chamfer_distance = pytest.importorskip("pytorch3d.loss").chamfer_distance
 

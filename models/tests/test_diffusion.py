@@ -47,6 +47,12 @@ except ImportError:
     DiscreteStateScheduler = cast(Any, None)
 
 
+def _chamfer_distance(x: Tensor, y: Tensor) -> Tensor:
+    distances = torch.cdist(x, y)
+    per_batch = distances.min(dim=2).values.mean(dim=1) + distances.min(dim=1).values.mean(dim=1)
+    return per_batch.mean()
+
+
 def _num_train_timesteps(scheduler: Any) -> int:
     config = getattr(scheduler, "config", None)
     if isinstance(config, dict):

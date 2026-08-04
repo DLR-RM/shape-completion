@@ -119,7 +119,7 @@ def run(cfg: DictConfig) -> float:
     optimizer: Any = None
     if cfg.train.hypergradients:
         try:
-            from gradient_descent_the_ultimate_optimizer import gdtuo
+            from gradient_descent_the_ultimate_optimizer import gdtuo  # pyright: ignore[reportMissingImports]
 
             optimizer = gdtuo.Adam(optimizer=cast(Any, gdtuo.SGD(1e-5)))
             model = gdtuo.ModuleWrapper(model, optimizer=cast(Any, optimizer))
@@ -157,7 +157,7 @@ def run(cfg: DictConfig) -> float:
 
             if "8bit" in cfg.train.optimizer:
                 try:
-                    import bitsandbytes as bnb
+                    import bitsandbytes as bnb  # pyright: ignore[reportMissingImports]
 
                     optimizer = getattr(bnb.optim, cfg.train.optimizer)
                 except ImportError:
@@ -241,6 +241,9 @@ def run(cfg: DictConfig) -> float:
         filename = "epoch={epoch}-step={step}-val_loss={val/loss:.2f}"
         if monitor != "val/loss":
             filename += f"-{monitor.replace('/', '_').lower()}=" + "{" + monitor + ":.2f}"
+    checkpoint_every_n_epochs = cfg.log.get("checkpoint_every_n_epochs")
+    if checkpoint_every_n_epochs is None and cfg.log.top_k == -1:
+        checkpoint_every_n_epochs = max(1, cfg.train.epochs // 5)
     callbacks = [
         ModelCheckpoint(
             filename=filename,
@@ -250,7 +253,7 @@ def run(cfg: DictConfig) -> float:
             save_top_k=cfg.log.top_k,
             mode=mode,
             auto_insert_metric_name=False,
-            every_n_epochs=cfg.train.epochs // 5 if cfg.log.top_k == -1 else None,
+            every_n_epochs=checkpoint_every_n_epochs,
         ),
         RichModelSummary(max_depth=cfg.log.summary_depth + (1 if cfg.model.compile else 0) + cfg.log.verbose),
     ]
@@ -418,7 +421,12 @@ def run(cfg: DictConfig) -> float:
                 tuner.lr_find(model, datamodule=datamodule)
 
         checkpoint_path = resolve_checkpoint_path(cfg)
-        trainer.fit(model, datamodule, ckpt_path=checkpoint_path)
+        trainer.fit(
+            model,
+            datamodule,
+            ckpt_path=checkpoint_path,
+            weights_only=False if checkpoint_path is not None else None,
+        )
 
         state_dict = None
         checkpoint_callback = cast(Any, trainer.checkpoint_callback)

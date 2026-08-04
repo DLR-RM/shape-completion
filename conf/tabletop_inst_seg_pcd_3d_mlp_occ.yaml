@@ -1,0 +1,6 @@
+defaults:
+  - tabletop_inst_seg_pcd_3d
+  - _self_
+
+model:
+  mlp_occ_head: true

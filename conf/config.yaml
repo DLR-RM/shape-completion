@@ -334,6 +334,10 @@ vis:
   resolution: 128
   upsampling_steps:
   refinement_steps: 0
+  surface_refinement_steps: 0
+  surface_refinement_mode: secant
+  surface_newton_steps: 0
+  surface_normal_mode: volume
   normals: False
   colors: False
   simplify:

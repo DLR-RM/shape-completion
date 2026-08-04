@@ -6,6 +6,7 @@ PyTorch Lightning-based training infrastructure for shape completion models. Pro
 
 ```bash
 # As submodule
+git submodule add git@rmc-github.robotic.dlr.de:humt-ma/shape-completion-train.git train
 
 # Dependencies (from main repo)
 uv sync --extra train
