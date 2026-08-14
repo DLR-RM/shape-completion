@@ -137,9 +137,22 @@ The `dino*` and `dino_inst*` arch strings route to different classes based on `c
 | `DinoInstSeg` | `dino_inst*` | image (default) | 2D instance segmentation with DINOv2 features |
 | `DinoInstSeg3D` | `dino_inst*` | depth/kinect + `project: true` | 3D instance segmentation from projected depth |
 | `DinoInstSegRGBD` | `dino_inst*` | rgbd | Instance segmentation with RGB-D fusion |
+| `DinoInstSegRGBD3D` | `dino_inst_rgbd3d` | rgbd + `project: true` | 3D instance segmentation with RGB-D fusion |
 | `DinoInst3D` | `dino_inst*` | `load_3d: true` | Multi-view 3D instance segmentation |
 | `DinoCls` | (direct import only) | N/A | DINOv2 classification head (not in `get_model`) |
 | `InstOccPipeline` | `inst_pipe*` | N/A | Pipeline combining instance segmentation + occupancy |
+
+#### 3D RGB-D fusion modes
+
+Use `arch: dino_inst_rgbd3d` with `inputs.type: rgbd` and `inputs.project: true`.
+
+- Encoder-side modes: `none`, `raw_point`, and `dino_point`.
+- Decode/input-segmentation modes: `raw_decode` and `featup_decode`; these require `multitask`.
+- Dual modes: `raw_dual`, `dino_dual`, and `featup_dual`. Point or dual delivery also requires `multitask`; query delivery works without it.
+- Token mode: `dino_token_cat`; it requires a single point decoder and `spatial_feedback: false`.
+- `featup_decode` and `featup_dual` require explicit `featup_repo` and `featup_checkpoint` paths.
+
+`dino_upsampled_point` is not a supported mode.
 
 ### Classification / Segmentation
 

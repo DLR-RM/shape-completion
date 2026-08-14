@@ -659,6 +659,65 @@ def test_raw_point_requires_inputs_colors() -> None:
         wrapper(**batch)
 
 
+def test_unsupported_rgb_fusion_mode_is_rejected() -> None:
+    with pytest.raises(ValueError, match="Unsupported rgb_fusion mode"):
+        dinov2.DinoInstSegRGBD3D(
+            depth_model=make_depth_model(),
+            rgb_fusion=cast(Any, "dino_upsampled_point"),
+        )
+
+
+@pytest.mark.parametrize(
+    ("rgb_fusion", "rgb_delivery"),
+    [
+        ("raw_decode", "dual"),
+        ("featup_decode", "dual"),
+        ("raw_dual", "point"),
+        ("raw_dual", "dual"),
+    ],
+)
+def test_decode_side_and_point_delivery_require_multitask(
+    rgb_fusion: Literal["raw_decode", "featup_decode", "raw_dual"],
+    rgb_delivery: Literal["point", "dual"],
+) -> None:
+    with pytest.raises(ValueError, match=r"requires depth_model\.multitask"):
+        dinov2.DinoInstSegRGBD3D(
+            depth_model=make_depth_model(),
+            rgb_fusion=rgb_fusion,
+            rgb_delivery=rgb_delivery,
+        )
+
+
+def test_query_delivery_works_without_multitask() -> None:
+    wrapper = dinov2.DinoInstSegRGBD3D(
+        depth_model=make_depth_model(),
+        rgb_fusion="raw_dual",
+        rgb_delivery="query",
+    ).eval()
+
+    with torch.inference_mode():
+        output = wrapper(**build_batch())
+
+    assert output["logits"].shape == (2, 3, 5)
+
+
+@pytest.mark.parametrize(
+    ("featup_repo", "featup_checkpoint"),
+    [(None, "missing-checkpoint"), ("missing-repo", None)],
+)
+def test_featup_fusion_requires_explicit_assets(
+    featup_repo: str | None,
+    featup_checkpoint: str | None,
+) -> None:
+    with pytest.raises(ValueError, match="requires both featup_repo and featup_checkpoint"):
+        dinov2.DinoInstSegRGBD3D(
+            depth_model=make_depth_model(multitask="head"),
+            rgb_fusion="featup_decode",
+            featup_repo=featup_repo,
+            featup_checkpoint=featup_checkpoint,
+        )
+
+
 def test_raw_point_forward_uses_full_input_side_features() -> None:
     wrapper = dinov2.DinoInstSegRGBD3D(depth_model=make_depth_model(), rgb_fusion="raw_point")
     batch = build_batch(n_inputs=9)
@@ -988,7 +1047,7 @@ def test_wrapper_shares_dropout_masks_and_disables_them_in_eval(monkeypatch: pyt
 def test_fusion_dropout_probabilities_must_leave_joint_samples() -> None:
     with pytest.raises(ValueError, match="sum to less than 1"):
         dinov2.DinoInstSegRGBD3D(
-            depth_model=make_depth_model(),
+            depth_model=make_depth_model(multitask="head"),
             rgb_fusion="featup_dual",
             rgb_residual_dropout=0.5,
             depth_fusion_dropout=0.5,
@@ -996,14 +1055,14 @@ def test_fusion_dropout_probabilities_must_leave_joint_samples() -> None:
 
     with pytest.raises(ValueError, match="rgb_token_dropout"):
         dinov2.DinoInstSegRGBD3D(
-            depth_model=make_depth_model(),
+            depth_model=make_depth_model(multitask="head"),
             rgb_fusion="featup_dual",
             rgb_token_dropout=1.0,
         )
 
     with pytest.raises(ValueError, match="only with featup_dual"):
         dinov2.DinoInstSegRGBD3D(
-            depth_model=make_depth_model(),
+            depth_model=make_depth_model(multitask="head"),
             rgb_fusion="raw_dual",
             rgb_token_dropout=0.15,
         )
@@ -1706,8 +1765,19 @@ def test_resolver_keeps_constructor_default_when_override_is_absent() -> None:
     resolved = resolve_dino_instseg3d_kwargs(cfg)
 
     assert resolved["branch_quality_loss_balance"] == "equal"
+    assert resolved["repo_or_dir"] == "facebookresearch/dinov2"
     assert resolved["matcher_points_weight"] is None
     assert resolved["matcher_inputs_weight"] is None
+
+    custom_cfg = OmegaConf.create(
+        {
+            "inputs": {"dim": 3},
+            "model": {"bias": True, "dropout": 0.0},
+            "train": {"loss": None},
+            "repo_or_dir": "/local/dinov2",
+        }
+    )
+    assert resolve_dino_instseg3d_kwargs(custom_cfg)["repo_or_dir"] == "/local/dinov2"
 
     rgbd_resolved = resolve_dino_instseg_rgbd3d_kwargs(OmegaConf.create({"rgb_fusion": None}))
     assert rgbd_resolved["rgb_fusion"] == "none"
@@ -1866,6 +1936,7 @@ def test_predict_precomputed_feature_recovers_spatial_positions(
         rgb_fusion=rgb_fusion,
         train_mode="adapter",
         query_rgb_tokens=4,
+        rgb_delivery="query" if rgb_fusion == "raw_dual" else "dual",
     )
     batch = build_batch()
     encode_kwargs = {key: value for key, value in batch.items() if key not in {"inputs", "points"}}

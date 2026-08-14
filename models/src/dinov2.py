@@ -5510,8 +5510,10 @@ class FeatUpPointFeatureProvider(nn.Module):
     mean: Tensor
     std: Tensor
 
-    def __init__(self, repo: str, checkpoint: str):
+    def __init__(self, repo: str | None, checkpoint: str | None):
         super().__init__()
+        if repo is None or checkpoint is None:
+            raise ValueError("FeatUp RGB fusion requires both featup_repo and featup_checkpoint.")
         repo_path = Path(repo)
         checkpoint_path = Path(checkpoint)
         if not repo_path.is_dir():
@@ -5591,6 +5593,19 @@ class FeatUpPointFeatureProvider(nn.Module):
         return upsampled
 
 
+RGBD_FUSION_MODES = (
+    "none",
+    "raw_point",
+    "raw_decode",
+    "featup_decode",
+    "featup_dual",
+    "raw_dual",
+    "dino_dual",
+    "dino_point",
+    "dino_token_cat",
+)
+
+
 class DinoInstSegRGBD3D(Model):
     def __init__(
         self,
@@ -5604,7 +5619,6 @@ class DinoInstSegRGBD3D(Model):
             "raw_dual",
             "dino_dual",
             "dino_point",
-            "dino_upsampled_point",
             "dino_token_cat",
         ] = "none",
         fusion_mode: Literal["add", "zero_add", "gate", "cat_linear"] = "gate",
@@ -5614,8 +5628,8 @@ class DinoInstSegRGBD3D(Model):
         freeze_rgb_encoder: bool = True,
         rgb_image_normalization: Literal["auto", "imagenet", "rgb"] = "auto",
         fusion_gate_init_bias: float = -10.0,
-        featup_repo: str = "/volume/reconstruction_data/humt_ma/external/rgbd/featup",
-        featup_checkpoint: str = (
+        featup_repo: str | None = "/volume/reconstruction_data/humt_ma/external/rgbd/featup",
+        featup_checkpoint: str | None = (
             "/volume/reconstruction_data/humt_ma/external/rgbd/featup/checkpoints/dinov2_jbu_stack_cocostuff.ckpt"
         ),
         rgb_metric_checkpoint: str | None = None,
@@ -5632,12 +5646,24 @@ class DinoInstSegRGBD3D(Model):
         super().__init__()
         if rgb_fusion is None:
             rgb_fusion = "none"
+        if rgb_fusion not in RGBD_FUSION_MODES:
+            raise ValueError(
+                f"Unsupported rgb_fusion mode {rgb_fusion!r}; expected one of: {', '.join(RGBD_FUSION_MODES)}"
+            )
         if query_rgb_tokens <= 0:
             raise ValueError("query_rgb_tokens must be positive")
         if rgb_delivery not in {"point", "query", "dual"}:
             raise ValueError("rgb_delivery must be one of: point, query, dual")
         if query_fusion_stage not in {"late", "early"}:
             raise ValueError("query_fusion_stage must be one of: late, early")
+        if not depth_model.multitask and (
+            rgb_fusion in {"raw_decode", "featup_decode"}
+            or (rgb_fusion in {"featup_dual", "raw_dual", "dino_dual"} and rgb_delivery in {"point", "dual"})
+        ):
+            raise ValueError(
+                "RGB decode-side or point-delivery fusion requires depth_model.multitask; "
+                "use rgb_delivery='query' for dual fusion without multitask."
+            )
         if rgb_fusion == "dino_token_cat" and depth_model.spatial_feedback:
             raise ValueError("dino_token_cat does not support spatial_feedback")
         if not 0 <= rgb_residual_dropout < 1:
