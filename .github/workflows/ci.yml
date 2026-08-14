@@ -60,6 +60,12 @@ jobs:
       - name: Sync locked dependencies
         run: uv sync --frozen --extra full
 
+      - name: Install Tier-2 test dependency
+        run: |
+          TORCH_VERSION=$(uv run --no-sync python -c "import torch; print(torch.__version__)")
+          uv pip install --python .venv/bin/python torch-scatter \
+            --find-links "https://data.pyg.org/whl/torch-${TORCH_VERSION}.html"
+
       - name: Run PR quality lane
         env:
           UV_NO_SYNC: "1"

@@ -352,7 +352,7 @@ Without `--execute`, the script prints commands only. This is the recommended pu
 
 **C1-specific setup (in addition to [Setup](#setup) above):**
 
-1. **`torch_scatter` (Tier-2)** — required by ConvONet's `GridEncoder`. Use the prebuilt wheel matching the pinned `torch 2.6.0+cu124` (installed by `uv sync`):
+1. **`torch_scatter` (Tier-2)** — required by ConvONet's `GridEncoder`. Use the prebuilt wheel matching the pinned `torch 2.6.0+cu124`:
    ```bash
    uv pip install torch-scatter --find-links https://data.pyg.org/whl/torch-2.6.0+cu124.html
    ```
