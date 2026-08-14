@@ -58,7 +58,7 @@ jobs:
           cache-python: true
 
       - name: Sync locked dependencies
-        run: uv sync --frozen --extra full
+        run: uv sync --frozen --extra full --extra diffusion
 
       - name: Install Tier-2 test dependency
         run: |
