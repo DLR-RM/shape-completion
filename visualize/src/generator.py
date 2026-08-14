@@ -215,7 +215,7 @@ def _surface_normals_from_xyz_volume(
 ) -> np.ndarray:
     if pts.shape[0] == 0:
         return np.empty((0, 3), dtype=np.float64)
-    grad_vols = np.gradient(volume.astype(np.float64), spacing, spacing, spacing, edge_order=1)
+    grad_vols = cast(list[np.ndarray], np.gradient(volume.astype(np.float64), spacing, spacing, spacing, edge_order=1))
     grad = np.stack([_trilinear_sample_xyz(g, origin, spacing, pts) for g in grad_vols], axis=-1)
     norm = np.linalg.norm(grad, axis=1, keepdims=True)
     return grad / np.maximum(norm, 1e-12)

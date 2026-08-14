@@ -28,13 +28,6 @@ from ..src.model import Model
 from ..src.transformer import Attention
 from ..src.vae import VQVAEModel
 
-
-def _chamfer_distance(x: Tensor, y: Tensor) -> Tensor:
-    distances = torch.cdist(x, y)
-    per_batch = distances.min(dim=2).values.mean(dim=1) + distances.min(dim=1).values.mean(dim=1)
-    return per_batch.mean()
-
-
 try:
     from diffusers.schedulers.scheduling_vdm import VDMScheduler
 except ImportError:
