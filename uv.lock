@@ -2576,6 +2576,7 @@ diffusion = [
 ]
 eval = [
     { name = "binvox" },
+    { name = "clean-fid" },
     { name = "einops" },
     { name = "fast-simplification" },
     { name = "faster-coco-eval" },
@@ -2782,6 +2783,7 @@ torch = [
 ]
 train = [
     { name = "binvox" },
+    { name = "clean-fid" },
     { name = "einops" },
     { name = "fast-simplification" },
     { name = "faster-coco-eval" },
@@ -2906,8 +2908,8 @@ requires-dist = [
     { name = "shape-completion", extras = ["utils"], marker = "extra == 'models'" },
     { name = "shape-completion", extras = ["utils"], marker = "extra == 'process'" },
     { name = "shape-completion", extras = ["utils"], marker = "extra == 'visualize'" },
-    { name = "shape-completion", extras = ["utils", "dataset", "models"], marker = "extra == 'eval'" },
-    { name = "shape-completion", extras = ["utils", "dataset", "models"], marker = "extra == 'train'" },
+    { name = "shape-completion", extras = ["utils", "dataset", "models", "fid"], marker = "extra == 'eval'" },
+    { name = "shape-completion", extras = ["utils", "dataset", "models", "fid"], marker = "extra == 'train'" },
     { name = "shape-completion", extras = ["utils", "models"], marker = "extra == 'inference'" },
     { name = "tabulate", marker = "extra == 'eval'", specifier = ">=0.9" },
     { name = "tabulate", marker = "extra == 'inference'", specifier = ">=0.9" },

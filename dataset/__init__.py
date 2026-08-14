@@ -1222,6 +1222,10 @@ def get_tabletop(cfg: DictConfig, split: str, ds: str = "tabletop") -> TableTop:
     points_fraction = cfg.get("points_fraction", "auto")
     if split == "test" or not cfg.points.subsample or collate_3d not in ["stack", "cat"]:
         points_fraction = None
+    data_dir_3d = None
+    if load_3d:
+        data_dir_3d_key = f"{ds}_3d"
+        data_dir_3d = Path(cfg.dirs[data_dir_3d_key] if data_dir_3d_key in cfg.dirs else cfg.dirs["shapenet_v1_fused"])
     tabletop_cls = cast(Any, TableTop)
     inputs_type = str(cfg.inputs.type)
     depth_type = str(cfg.inputs.get("depth_type", inputs_type))
@@ -1237,7 +1241,7 @@ def get_tabletop(cfg: DictConfig, split: str, ds: str = "tabletop") -> TableTop:
         load_normals=cfg.inputs.normals or cfg.pointcloud.normals or cfg.points.from_pointcloud,
         apply_filter=cfg.get("filter", False),
         project=cfg.inputs.project,
-        data_dir_3d=Path(cfg.dirs["shapenet_v1_fused"]) if load_3d else None,
+        data_dir_3d=data_dir_3d,
         split=split,
         mesh_file=cfg.files.mesh,
         pcd_file=cfg.files.pointcloud,
@@ -1256,6 +1260,8 @@ def get_tabletop(cfg: DictConfig, split: str, ds: str = "tabletop") -> TableTop:
         apply_pose=cfg.get("apply_pose", True),
         from_hdf5=cfg.load.hdf5,
         cache_points=cfg.points.cache,
+        allow_empty_scenes=bool(cfg.data.get("allow_empty_scenes", False)),
+        exclude_manifest=(Path(cfg.data.exclude_manifest) if cfg.data.get("exclude_manifest") else None),
         transforms=transforms,
         transforms_3d=transforms_3d,
     )
@@ -1619,7 +1625,7 @@ def get_dataset(
                     cfg, split="train", patch_size=cfg.get("patch_size", 14), scale=cfg.get("coco_scale", 0.25)
                 )
                 data = CocoInstanceSegmentation(data_dir=Path(cfg.dirs[ds]), split="train", transforms=transforms)
-            elif "tabletop" in ds:
+            elif "tabletop" in ds or ds.startswith("objaverse_rgbd"):
                 data = get_tabletop(cfg, split="train", ds=ds)
             elif ds.startswith(("bopscene", "gc6d")):
                 data = get_bop_scene(cfg, ds, split="train")
@@ -1690,7 +1696,7 @@ def get_dataset(
                     cfg, split="val", patch_size=cfg.get("patch_size", 14), scale=cfg.get("coco_scale", 0.25)
                 )
                 data = CocoInstanceSegmentation(data_dir=Path(cfg.dirs[ds]), split="val", transforms=transforms)
-            elif "tabletop" in ds:
+            elif "tabletop" in ds or ds.startswith("objaverse_rgbd"):
                 data = get_tabletop(cfg, split="val", ds=ds)
             elif ds.startswith(("bopscene", "gc6d")):
                 data = get_bop_scene(cfg, ds, split="val")
@@ -1767,7 +1773,7 @@ def get_dataset(
                     normalize=cfg.model.arch != "mask_rcnn",
                 )
                 data = CocoInstanceSegmentation(data_dir=Path(cfg.dirs[ds]), split="test", transforms=transforms)
-            elif "tabletop" in ds:
+            elif "tabletop" in ds or ds.startswith("objaverse_rgbd"):
                 data = get_tabletop(cfg, split="test", ds=ds)
             elif ds.startswith("graspnet"):
                 data = get_graspnet(cfg, ds, split="test")

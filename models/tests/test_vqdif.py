@@ -21,6 +21,7 @@ class TestVQDIF:
         VQDIF(**DEFAULT_KWARGS)
 
     @pytest.mark.gpu
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_forward(self):
         vqdif = VQDIF(**DEFAULT_KWARGS).cuda()
 
@@ -41,6 +42,7 @@ class TestVQDIF:
 
 class TestTrainedVQDIF:
     @pytest.mark.gpu
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_forward(self, path_to_pretrained_vqdif):
         if not os.path.isfile(path_to_pretrained_vqdif):
             pytest.skip("Pretrained model not found")

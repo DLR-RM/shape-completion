@@ -23,6 +23,9 @@ if importlib.util.find_spec("mathutils") is None:
 
 import mathutils  # pyright: ignore[reportMissingImports]
 
+if not hasattr(mathutils, "Vector") or not hasattr(mathutils, "Matrix"):
+    pytest.skip("Blender mathutils Vector/Matrix unavailable", allow_module_level=True)
+
 # ---------------------------------------------------------------------------
 # Fixture: import blender_load with lightweight bpy/bmesh stubs
 # ---------------------------------------------------------------------------

@@ -99,11 +99,15 @@ class TableTop(VisionDataset):
         apply_pose: bool = True,
         from_hdf5: bool = False,
         cache_points: bool = False,
+        exclude_manifest: Path | None = None,
+        allow_empty_scenes: bool = False,
         max_pcd_points: int = 100_000,
         transforms: Callable[..., Any] | None = None,
         transforms_3d: Transform | list[Transform] | None = None,
     ):
         super().__init__(root=data_dir, transforms=transforms)
+        if exclude_manifest is not None and collate_3d == "seq":
+            raise ValueError("exclude_manifest is not supported with collate_3d='seq'")
 
         get_coco_ds = partial(
             CocoInstanceSegmentation,
@@ -144,6 +148,29 @@ class TableTop(VisionDataset):
                 with stdout_redirected(enabled=not logger.isEnabledFor(DEBUG_LEVEL_2)):
                     self.coco_ds.append(validate_coco_ds(get_coco_ds(shard)))
         self._cumsize = np.cumsum([len(ds) for ds in self.coco_ds])
+        self._included_indices: list[tuple[int, int, int]] | None = None
+        if exclude_manifest is not None:
+            manifest = json.loads(exclude_manifest.read_text(encoding="utf-8"))
+            if manifest.get("schema_version") != 1:
+                raise ValueError(f"unsupported exclusion manifest schema: {manifest.get('schema_version')!r}")
+            if manifest.get("dataset_name") != data_dir.name:
+                raise ValueError(f"exclusion manifest targets {manifest.get('dataset_name')!r}, not {data_dir.name!r}")
+            excluded = set(manifest.get("excluded", {}).get(split, []))
+            known: set[str] = set()
+            included: list[tuple[int, int, int]] = []
+            original_global_index = 0
+            for ds_idx, ds_item in enumerate(self.coco_ds):
+                shard_root = Path(ds_item.root)
+                for local_idx in range(len(ds_item)):
+                    relative_path = (shard_root / f"{local_idx}.hdf5").relative_to(data_dir).as_posix()
+                    known.add(relative_path)
+                    if relative_path not in excluded:
+                        included.append((ds_idx, local_idx, original_global_index))
+                    original_global_index += 1
+            unknown = excluded - known
+            if unknown:
+                raise ValueError(f"exclusion manifest contains unknown {split} frames: {sorted(unknown)[:5]}")
+            self._included_indices = included
 
         self.name = self.__class__.__name__
         self.split = split
@@ -521,6 +548,10 @@ class TableTop(VisionDataset):
         seq_inst_idx: int | None = None
         if self.collate_3d == "seq" and self._seq_indices is not None:
             ds_idx, local_idx, seq_inst_idx = self._seq_indices[index]
+            coco_ds = self.coco_ds[ds_idx]
+            index = local_idx
+        elif self._included_indices is not None:
+            ds_idx, local_idx, global_index = self._included_indices[index]
             coco_ds = self.coco_ds[ds_idx]
             index = local_idx
         else:
@@ -1249,6 +1280,8 @@ class TableTop(VisionDataset):
     def __len__(self) -> int:
         if self.collate_3d == "seq" and self._seq_indices is not None:
             return len(self._seq_indices)
+        if self._included_indices is not None:
+            return len(self._included_indices)
         return sum(len(ds) for ds in self.coco_ds)
 
     def __repr__(self):

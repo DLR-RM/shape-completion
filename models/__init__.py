@@ -17,6 +17,116 @@ from .src.dinov2 import dino3d_legacy_config_overrides, dino_inst_seg_3d_legacy_
 logger = setup_logger(__name__)
 
 
+def resolve_dino_instseg3d_kwargs(cfg: DictConfig) -> dict[str, Any]:
+    """Resolve every constructor argument for the depth model without constructing it."""
+    return {
+        "dim": cfg.inputs.dim,
+        "repo_or_dir": cfg.get("repo_or_dir", "facebookresearch/dinov2"),
+        "num_objs": cfg.get("n_objs", 100),
+        "num_queries": cfg.get("n_queries", 1024),
+        "num_enc_layers": cfg.get("l_enc", 1),
+        "num_query_layers": cfg.get("l_query"),
+        "backbone": cfg.get("backbone", "dinov2_vits14"),
+        "bias": cfg.model.bias,
+        "dropout": cfg.model.dropout,
+        "drop_path": cfg.get("drop_path", 0.1),
+        "mlp_ratio": cfg.get("mlp_ratio", 4),
+        "cls_token": cfg.get("cls_token", False),
+        "cat_feat": cfg.get("cat_feat", True),
+        "cat_point_feat": cfg.get("cat_point_feat", False),
+        "points_dec": cfg.get("point_dec"),
+        "pred_cls": cfg.get("pred_cls", "quality+objectness"),
+        "detach_cls": cfg.get("detach_cls", False),
+        "queries_from_feat": cfg.get("queries_from_feat", "detach"),
+        "cos_sim": cfg.get("cos_sim", False),
+        "logit_scale": cfg.get("logit_scale", False),
+        "embd_lvls": cfg.get("embd_lvls", False),
+        "mlp_heads": cfg.get("mlp_heads", False),
+        "match_cls": cfg.get("match_cls", True),
+        "anneal_cls": cfg.get("anneal_cls"),
+        "pad_targets": cfg.get("pad_targets", False),
+        "sample": cfg.get("sample"),
+        "loss_name": cfg.train.loss or "dice+bce",
+        "mask_weight": cfg.get("mask_weight", 1.0),
+        "mask_pos_weight": cfg.get("mask_pos_weight"),
+        "bce_focal_weight": cfg.get("bce_focal_weight", 5.0),
+        "dice_weight": cfg.get("dice_weight", 2.0),
+        "cls_weight": cfg.get("cls_weight", 0.5),
+        "cls_pos_weight": cfg.get("cls_pos_weight"),
+        "aux_weight": cfg.get("aux_weight"),
+        "init_weights": cfg.get("init_weights", False),
+        "learn_loss_weights": cfg.get("learn_weights", False),
+        "multitask": cfg.get("multitask", False),
+        "inputs_weight": cfg.get("inputs_weight", 1.0),
+        "points_weight": cfg.get("points_weight", 1.0),
+        "focal_alpha": cfg.get("focal_alpha", 0.25),
+        "focal_gamma": cfg.get("focal_gamma", 2.0),
+        "cls_threshold": cfg.get("cls_threshold", 0.5),
+        "min_mask_size": cfg.get("min_mask_size", 64),
+        "apply_filter": cfg.get("apply_filter", True),
+        "nerf_enc": cfg.get("nerf_enc", "tcnn" if TCNN_EXISTS else "torch"),
+        "nerf_freqs": cfg.get("nerf_freqs", 6),
+        "depth_descriptor": cfg.get("depth_descriptor"),
+        "salient_anchor_fraction": cfg.get("salient_anchor_fraction", 0.0),
+        "salient_candidate_multiplier": cfg.get("salient_candidate_multiplier", 4),
+        "salient_memory_attention": cfg.get("salient_memory_attention", False),
+        "voxel_anchor_resolutions": cfg.get("voxel_anchor_resolutions"),
+        "voxel_neighborhood_resolutions": cfg.get("voxel_neighborhood_resolutions"),
+        "voxel_bias_resolution": cfg.get("voxel_bias_resolution"),
+        "voxel_bias_clip": cfg.get("voxel_bias_clip", 2),
+        "extent_weight": cfg.get("extent_weight", 0.0),
+        "extent_quantile_temperature": cfg.get("extent_quantile_temperature", 0.02),
+        "spatial_reference_weight": cfg.get("spatial_reference_weight", 0.0),
+        "spatial_feedback": cfg.get("spatial_feedback", False),
+        "spatial_feedback_clip": cfg.get("spatial_feedback_clip", 8.0),
+        "allow_branch_warmstart": cfg.get("allow_branch_warmstart", False),
+        "branch_quality_heads": cfg.get("branch_quality_heads", False),
+        "branch_quality_loss_balance": cfg.get("branch_quality_loss_balance", "equal"),
+        "inputs_stop_gradient": cfg.get("inputs_stop_gradient", False),
+        "matcher_points_weight": cfg.get("matcher_points_weight"),
+        "matcher_inputs_weight": cfg.get("matcher_inputs_weight"),
+    }
+
+
+def resolve_dino_instseg_rgbd3d_kwargs(cfg: DictConfig) -> dict[str, Any]:
+    """Resolve RGB-D wrapper arguments shared by construction and contracts."""
+    rgb_fusion = cfg.get("rgb_fusion")
+    if rgb_fusion is None:
+        rgb_fusion = "none"
+    fusion_max_ratio = cfg.get("fusion_max_ratio", 0.1)
+    point_fusion_max_ratio = cfg.get("point_fusion_max_ratio")
+    query_fusion_max_ratio = cfg.get("query_fusion_max_ratio")
+    if point_fusion_max_ratio is None:
+        point_fusion_max_ratio = fusion_max_ratio
+    if query_fusion_max_ratio is None:
+        query_fusion_max_ratio = fusion_max_ratio
+    return {
+        "rgb_fusion": rgb_fusion,
+        "fusion_mode": cfg.get("fusion_mode", "gate"),
+        "train_mode": cfg.get("rgbd_train_mode", "finetune"),
+        "repo_or_dir": cfg.get("rgb_repo_or_dir", "facebookresearch/dinov2"),
+        "backbone": cfg.get("rgb_backbone", cfg.get("backbone", "dinov2_vits14")),
+        "freeze_rgb_encoder": cfg.get("freeze_rgb_encoder", True),
+        "rgb_image_normalization": cfg.get("rgb_image_normalization", "auto"),
+        "fusion_gate_init_bias": cfg.get("fusion_gate_init_bias", -10.0),
+        "featup_repo": cfg.get("featup_repo", "/volume/reconstruction_data/humt_ma/external/rgbd/featup"),
+        "featup_checkpoint": cfg.get(
+            "featup_checkpoint",
+            "/volume/reconstruction_data/humt_ma/external/rgbd/featup/checkpoints/dinov2_jbu_stack_cocostuff.ckpt",
+        ),
+        "rgb_metric_checkpoint": cfg.get("rgb_metric_checkpoint"),
+        "fusion_max_ratio": fusion_max_ratio,
+        "point_fusion_max_ratio": point_fusion_max_ratio,
+        "query_fusion_max_ratio": query_fusion_max_ratio,
+        "query_rgb_tokens": cfg.get("query_rgb_tokens", 1024),
+        "rgb_delivery": cfg.get("rgb_delivery", "dual"),
+        "query_fusion_stage": cfg.get("query_fusion_stage", "late"),
+        "rgb_residual_dropout": cfg.get("rgb_residual_dropout", 0.0),
+        "depth_fusion_dropout": cfg.get("depth_fusion_dropout", 0.0),
+        "rgb_token_dropout": cfg.get("rgb_token_dropout", 0.0),
+    }
+
+
 def _resolve_model_weights_path(cfg: DictConfig, weights_path: str | Path | None) -> Path | None:
     if not weights_path:
         return None
@@ -438,130 +548,15 @@ def get_model(cfg: DictConfig, arch: str | None = None, weights_path: str | Path
         else:
             if cfg.inputs.type in ["depth", "kinect", "kinect_sim"] and cfg.inputs.project and "rgbd3d" not in arch:
                 legacy_overrides = dino_inst_seg_3d_legacy_config_overrides(probed_weights)
-                model = DinoInstSeg3D(
-                    dim=cfg.inputs.dim,
-                    repo_or_dir=cfg.get("repo_or_dir", legacy_overrides.get("repo_or_dir", "facebookresearch/dinov2")),
-                    num_objs=cfg.get("n_objs", legacy_overrides.get("num_objs", 100)),
-                    num_queries=cfg.get("n_queries", legacy_overrides.get("num_queries", 1024)),
-                    num_enc_layers=cfg.get("l_enc", 1),
-                    num_query_layers=cfg.get("l_query"),
-                    backbone=cfg.get("backbone", "dinov2_vits14"),
-                    bias=cfg.model.bias,
-                    dropout=cfg.model.dropout,
-                    drop_path=cfg.get("drop_path", 0.1),
-                    mlp_ratio=cfg.get("mlp_ratio", 4),
-                    cls_token=cfg.get("cls_token", False),
-                    cat_feat=cfg.get("cat_feat", True),
-                    cat_point_feat=cfg.get("cat_point_feat", False),
-                    points_dec=cfg.get("point_dec"),
-                    pred_cls=cfg.get("pred_cls", legacy_overrides.get("pred_cls", "quality+objectness")),
-                    detach_cls=cfg.get("detach_cls", False),
-                    queries_from_feat=cfg.get("queries_from_feat", legacy_overrides.get("queries_from_feat", "detach")),
-                    cos_sim=cfg.get("cos_sim", False),
-                    logit_scale=cfg.get("logit_scale", False),
-                    embd_lvls=cfg.get("embd_lvls", False),
-                    mlp_heads=cfg.get("mlp_heads", legacy_overrides.get("mlp_heads", False)),
-                    match_cls=cfg.get("match_cls", True),
-                    anneal_cls=cfg.get("anneal_cls"),
-                    pad_targets=cfg.get("pad_targets", False),
-                    sample=cfg.get("sample"),
-                    loss_name=cfg.train.loss or "dice+bce",
-                    mask_weight=cfg.get("mask_weight", 1.0),
-                    mask_pos_weight=cfg.get("mask_pos_weight"),
-                    bce_focal_weight=cfg.get("bce_focal_weight", 5.0),
-                    dice_weight=cfg.get("dice_weight", 2.0),
-                    cls_weight=cfg.get("cls_weight", 0.5),
-                    cls_pos_weight=cfg.get("cls_pos_weight"),
-                    aux_weight=cfg.get("aux_weight"),
-                    init_weights=cfg.get("init_weights", legacy_overrides.get("init_weights", False)),
-                    learn_loss_weights=cfg.get("learn_weights", False),
-                    multitask=cfg.get("multitask", legacy_overrides.get("multitask", False)),
-                    inputs_weight=cfg.get("inputs_weight", 1.0),
-                    points_weight=cfg.get("points_weight", 1.0),
-                    focal_alpha=cfg.get("focal_alpha", 0.25),
-                    focal_gamma=cfg.get("focal_gamma", 2.0),
-                    cls_threshold=cfg.get("cls_threshold", 0.5),
-                    min_mask_size=cfg.get("min_mask_size", 64),
-                    apply_filter=cfg.get("apply_filter", True),
-                    nerf_enc=cfg.get("nerf_enc", "tcnn" if TCNN_EXISTS else "torch"),
-                    nerf_freqs=cfg.get("nerf_freqs", legacy_overrides.get("nerf_freqs", 6)),
-                    depth_descriptor=cfg.get("depth_descriptor"),
-                    voxel_anchor_resolutions=cfg.get("voxel_anchor_resolutions"),
-                    extent_weight=cfg.get("extent_weight", 0.0),
-                    extent_quantile_temperature=cfg.get("extent_quantile_temperature", 0.02),
-                    allow_branch_warmstart=cfg.get("allow_branch_warmstart", False),
-                )
+                depth_kwargs = resolve_dino_instseg3d_kwargs(cfg)
+                for key, value in legacy_overrides.items():
+                    depth_kwargs[key] = cfg.get(key, value)
+                model = DinoInstSeg3D(**depth_kwargs)
             elif "rgbd3d" in arch:
-                depth_model = DinoInstSeg3D(
-                    dim=cfg.inputs.dim,
-                    num_objs=cfg.get("n_objs", 100),
-                    num_queries=cfg.get("n_queries", 1024),
-                    num_enc_layers=cfg.get("l_enc", 1),
-                    num_query_layers=cfg.get("l_query"),
-                    backbone=cfg.get("backbone", "dinov2_vits14"),
-                    bias=cfg.model.bias,
-                    dropout=cfg.model.dropout,
-                    drop_path=cfg.get("drop_path", 0.1),
-                    mlp_ratio=cfg.get("mlp_ratio", 4),
-                    cls_token=cfg.get("cls_token", False),
-                    cat_feat=cfg.get("cat_feat", True),
-                    cat_point_feat=cfg.get("cat_point_feat", False),
-                    points_dec=cfg.get("point_dec"),
-                    pred_cls=cfg.get("pred_cls", "quality+objectness"),
-                    detach_cls=cfg.get("detach_cls", False),
-                    queries_from_feat=cfg.get("queries_from_feat", "detach"),
-                    cos_sim=cfg.get("cos_sim", False),
-                    logit_scale=cfg.get("logit_scale", False),
-                    embd_lvls=cfg.get("embd_lvls", False),
-                    mlp_heads=cfg.get("mlp_heads", False),
-                    match_cls=cfg.get("match_cls", True),
-                    anneal_cls=cfg.get("anneal_cls"),
-                    pad_targets=cfg.get("pad_targets", False),
-                    sample=cfg.get("sample"),
-                    loss_name=cfg.train.loss or "dice+bce",
-                    mask_weight=cfg.get("mask_weight", 1.0),
-                    mask_pos_weight=cfg.get("mask_pos_weight"),
-                    bce_focal_weight=cfg.get("bce_focal_weight", 5.0),
-                    dice_weight=cfg.get("dice_weight", 2.0),
-                    cls_weight=cfg.get("cls_weight", 0.5),
-                    cls_pos_weight=cfg.get("cls_pos_weight"),
-                    aux_weight=cfg.get("aux_weight"),
-                    init_weights=cfg.get("init_weights", False),
-                    learn_loss_weights=cfg.get("learn_weights", False),
-                    multitask=cfg.get("multitask", False),
-                    inputs_weight=cfg.get("inputs_weight", 1.0),
-                    points_weight=cfg.get("points_weight", 1.0),
-                    focal_alpha=cfg.get("focal_alpha", 0.25),
-                    focal_gamma=cfg.get("focal_gamma", 2.0),
-                    cls_threshold=cfg.get("cls_threshold", 0.5),
-                    min_mask_size=cfg.get("min_mask_size", 64),
-                    apply_filter=cfg.get("apply_filter", True),
-                    nerf_enc=cfg.get("nerf_enc", "tcnn" if TCNN_EXISTS else "torch"),
-                    nerf_freqs=cfg.get("nerf_freqs", 6),
-                    depth_descriptor=cfg.get("depth_descriptor"),
-                    voxel_anchor_resolutions=cfg.get("voxel_anchor_resolutions"),
-                    extent_weight=cfg.get("extent_weight", 0.0),
-                    extent_quantile_temperature=cfg.get("extent_quantile_temperature", 0.02),
-                    allow_branch_warmstart=cfg.get("allow_branch_warmstart", False),
-                )
+                depth_model = DinoInstSeg3D(**resolve_dino_instseg3d_kwargs(cfg))
                 model = DinoInstSegRGBD3D(
                     depth_model=depth_model,
-                    rgb_fusion=cfg.get("rgb_fusion", "none"),
-                    fusion_mode=cfg.get("fusion_mode", "gate"),
-                    train_mode=cfg.get("rgbd_train_mode", "finetune"),
-                    backbone=cfg.get("rgb_backbone", cfg.get("backbone", "dinov2_vits14")),
-                    freeze_rgb_encoder=cfg.get("freeze_rgb_encoder", True),
-                    rgb_image_normalization=cfg.get("rgb_image_normalization", "imagenet"),
-                    fusion_gate_init_bias=cfg.get("fusion_gate_init_bias", -10.0),
-                    featup_repo=cfg.get("featup_repo"),
-                    featup_checkpoint=cfg.get("featup_checkpoint"),
-                    rgb_metric_checkpoint=cfg.get("rgb_metric_checkpoint"),
-                    fusion_max_ratio=cfg.get("fusion_max_ratio", 0.1),
-                    query_rgb_tokens=cfg.get("query_rgb_tokens", 1024),
-                    rgb_delivery=cfg.get("rgb_delivery", "dual"),
-                    rgb_residual_dropout=cfg.get("rgb_residual_dropout", 0.0),
-                    depth_fusion_dropout=cfg.get("depth_fusion_dropout", 0.0),
-                    rgb_token_dropout=cfg.get("rgb_token_dropout", 0.0),
+                    **resolve_dino_instseg_rgbd3d_kwargs(cfg),
                 )
             elif cfg.inputs.type == "rgbd":
                 model = DinoInstSegRGBD(
@@ -741,7 +736,11 @@ def get_model(cfg: DictConfig, arch: str | None = None, weights_path: str | Path
             if path is None:
                 raise FileNotFoundError(f"Could not resolve weights path '{weights_path}'.")
             logger.info(f"Loading weights from {path}")
-            weights = probed_weights if probed_weights is not None else torch.load(path, map_location="cpu")
+            weights = (
+                probed_weights
+                if probed_weights is not None
+                else torch.load(path, map_location="cpu", weights_only=False)
+            )
             cfg.model.weights = str(path)
         elif cfg.model.load_best or cfg.train.skip:
             name = f"model_{'ema' if cfg.model.average == 'ema' else 'best'}.pt"

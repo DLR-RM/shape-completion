@@ -180,6 +180,7 @@ def test_ray_sampling(shapenet_data_root: Path, o3d_viz_enabled: bool):
 
 # @torch.autocast("cuda", dtype=torch.bfloat16, enabled=True)
 @pytest.mark.integration
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_forward():
     torch.manual_seed(1234)
     config = RayMarchingConfig(near=1, far=2.4, crop=True, refine_mode="secant")
@@ -238,6 +239,7 @@ def test_forward():
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_backward():
     config = RayMarchingConfig(near=1, far=2.4, crop=True, refine_mode="secant")
     dvr = DVR(model=DinoRGB(backbone="dinov2_vits14", freeze=False, condition="cls", init=False), config=config).cuda()

@@ -50,6 +50,7 @@ def test_forward():
     assert logits.shape == inputs.shape
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_loss():
     model = PSSNet()
     model.flow = RealNVP().eval()

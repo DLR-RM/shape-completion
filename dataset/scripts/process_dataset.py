@@ -169,10 +169,8 @@ def merge_splits(args: Any):
     split_names = ["train", "val", "test"]
 
     # Iterate over each class defined in TARGET_CLASSES
-    for class_id in sorted(args.in_dir.iterdir()):
-        if not class_id.is_dir():
-            continue
-
+    class_dirs = sorted((path for path in args.in_dir.iterdir() if path.is_dir()), key=lambda path: path.name)
+    for class_id in class_dirs:
         class_dir = base_path / class_id
         logger.info(f"Processing class {class_id}")
 

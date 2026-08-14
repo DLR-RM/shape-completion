@@ -1,5 +1,6 @@
 import os
 from functools import partial
+from pathlib import Path
 from typing import Any, cast
 
 import hydra
@@ -38,6 +39,7 @@ from utils import (
 
 from ..src.data_module import LitDataModule
 from ..src.model import LitModel
+from ..src.model_contract import verify_and_write_model_contract
 from ..src.schedulers import LinearWarmupCosineAnnealingLR
 from ..src.utils import get_test_dataset, save_best_model, save_ema_model
 
@@ -98,8 +100,17 @@ def run(cfg: DictConfig) -> float:
         share_memory=cfg.data.share_memory,
     )
 
+    model = cast(Any, get_model(cfg))
+    model_contract_path = cfg.get("model_contract_path")
+    if model_contract_path is not None:
+        verify_and_write_model_contract(
+            model,
+            contract_path=Path(str(model_contract_path)),
+            artifact_path=save_dir / "effective_model_config.json",
+            expected_sha256=cfg.get("model_contract_sha256"),
+        )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = cast(Any, get_model(cfg)).to(device)
+    model = model.to(device)
     scheduler = None
     monitor = cfg.train.model_selection_metric
     mode = "min" if "loss" in monitor else "max"

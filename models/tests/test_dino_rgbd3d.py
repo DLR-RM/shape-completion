@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Literal, cast
 
 import pytest
@@ -7,6 +8,8 @@ import torch
 from torch import Tensor, nn
 
 from ..src import dinov2
+
+LOAD_DINO_BACKBONE = dinov2._load_dino_backbone
 
 
 class TinyBackbone(nn.Module):
@@ -91,6 +94,33 @@ def patch_dino_and_fps(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(dinov2, "furthest_point_sample", fake_fps)
 
 
+def test_dino_backbone_uses_local_hub_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    def fake_load(repo: str, backbone: str, **kwargs: Any) -> TinyBackbone:
+        calls.append((repo, backbone, kwargs))
+        return TinyBackbone()
+
+    monkeypatch.setattr(torch.hub, "load", fake_load)
+
+    LOAD_DINO_BACKBONE(
+        str(tmp_path),
+        "dinov2_vitb14",
+        pretrained=True,
+    )
+
+    assert calls == [
+        (
+            str(tmp_path),
+            "dinov2_vitb14",
+            {"pretrained": True, "source": "local", "verbose": False},
+        )
+    ]
+
+
 def build_batch(batch_size: int = 2, n_inputs: int = 7, n_points: int = 5) -> dict[str, Tensor]:
     torch.manual_seed(123)
     return {
@@ -113,6 +143,8 @@ def build_batch(batch_size: int = 2, n_inputs: int = 7, n_points: int = 5) -> di
 def make_depth_model(
     cat_feat: bool = False,
     multitask: bool | Literal["head", "dec"] | None = None,
+    num_query_layers: int = 1,
+    pred_cls: Literal["objectness", "quality", "quality+objectness"] = "objectness",
     **kwargs: Any,
 ) -> dinov2.DinoInstSeg3D:
     return dinov2.DinoInstSeg3D(
@@ -121,7 +153,7 @@ def make_depth_model(
         num_queries=4,
         num_query_layers=1,
         cat_feat=cat_feat,
-        pred_cls="objectness",
+        pred_cls=pred_cls,
         match_cls=False,
         mlp_heads=False,
         init_weights=False,
@@ -129,6 +161,141 @@ def make_depth_model(
         multitask=multitask,
         **kwargs,
     )
+
+
+def make_branch_quality_model(
+    inputs_stop_gradient: bool = False,
+    branch_quality_loss_balance: Literal["equal", "task_weights"] = "equal",
+    inputs_weight: float = 1.0,
+) -> dinov2.DinoInstSeg3D:
+    return make_depth_model(
+        multitask="head",
+        pred_cls="quality+objectness",
+        branch_quality_heads=True,
+        branch_quality_loss_balance=branch_quality_loss_balance,
+        inputs_stop_gradient=inputs_stop_gradient,
+        inputs_weight=inputs_weight,
+    )
+
+
+def test_branch_quality_configuration_rejects_ambiguous_modes() -> None:
+    with pytest.raises(ValueError, match="multitask"):
+        make_depth_model(pred_cls="quality+objectness", branch_quality_heads=True)
+    with pytest.raises(ValueError, match=r"quality\+objectness"):
+        make_depth_model(multitask="head", pred_cls="objectness", branch_quality_heads=True)
+    with pytest.raises(ValueError, match="branch_quality_heads"):
+        make_depth_model(multitask="head", inputs_stop_gradient=True)
+    with pytest.raises(ValueError, match="branch_quality_loss_balance"):
+        make_depth_model(
+            multitask="head",
+            pred_cls="quality+objectness",
+            branch_quality_heads=True,
+            branch_quality_loss_balance="unsupported",
+        )
+    with pytest.raises(ValueError, match="fixed task weights"):
+        make_depth_model(
+            multitask="head",
+            pred_cls="quality+objectness",
+            branch_quality_heads=True,
+            branch_quality_loss_balance="task_weights",
+            learn_loss_weights=True,
+        )
+    with pytest.raises(ValueError, match="positive sum"):
+        make_depth_model(
+            multitask="head",
+            pred_cls="quality+objectness",
+            branch_quality_heads=True,
+            branch_quality_loss_balance="task_weights",
+            points_weight=0.0,
+            inputs_weight=0.0,
+        )
+
+
+def test_task_weighted_branch_quality_matches_shared_target_at_migration() -> None:
+    model = make_branch_quality_model(
+        branch_quality_loss_balance="task_weights",
+        inputs_weight=0.2,
+    )
+    logits = torch.tensor([-1.5, 0.0, 2.0])
+    points_targets = torch.tensor([0.9, 0.4, 0.7])
+    inputs_targets = torch.tensor([0.2, 0.8, 0.3])
+
+    branch_loss = model._get_branch_quality_loss(
+        logits,
+        points_targets,
+        logits,
+        inputs_targets,
+    )
+    shared_targets = (points_targets + 0.2 * inputs_targets) / 1.2
+    shared_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+        logits,
+        shared_targets,
+    )
+
+    assert torch.allclose(branch_loss, shared_loss)
+
+
+def test_matcher_branch_weights_reject_ambiguous_modes() -> None:
+    with pytest.raises(ValueError, match="must be set together"):
+        make_depth_model(
+            multitask="head",
+            matcher_points_weight=1.0,
+        )
+    with pytest.raises(ValueError, match="multitask"):
+        make_depth_model(
+            matcher_points_weight=1.0,
+            matcher_inputs_weight=0.2,
+        )
+    with pytest.raises(ValueError, match="positive sum"):
+        make_depth_model(
+            multitask="head",
+            matcher_points_weight=0.0,
+            matcher_inputs_weight=0.0,
+        )
+
+
+@pytest.mark.parametrize(
+    ("matcher_points_weight", "matcher_inputs_weight", "expected"),
+    [
+        (None, None, (2.0, 0.4)),
+        (0.5, 1.5, (1.0, 3.0)),
+    ],
+)
+def test_matcher_uses_independent_branch_weights(
+    monkeypatch: pytest.MonkeyPatch,
+    matcher_points_weight: float | None,
+    matcher_inputs_weight: float | None,
+    expected: tuple[float, float],
+) -> None:
+    model = make_depth_model(
+        multitask="head",
+        points_weight=1.0,
+        inputs_weight=0.2,
+        mask_weight=2.0,
+        matcher_points_weight=matcher_points_weight,
+        matcher_inputs_weight=matcher_inputs_weight,
+    )
+    cat_logits = torch.zeros(1, 1, 4)
+    aligned_masks = [torch.zeros(1, 4)]
+    monkeypatch.setattr(
+        model,
+        "_coalesce_logits_masks",
+        lambda logits, masks: (cat_logits, aligned_masks),
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_matcher(**kwargs: Any) -> tuple[list[tuple[Tensor, Tensor]], float]:
+        captured["occ_weight"] = kwargs["occ_weight"]
+        index = torch.tensor([0])
+        return [(index, index)], 0.0
+
+    monkeypatch.setattr(dinov2, "hungarian_matcher", fake_matcher)
+
+    model._match_and_gather(object(), object(), scores=None)
+
+    weights = cast(tuple[float | Tensor, float | Tensor], captured["occ_weight"])
+    actual = tuple(float(torch.as_tensor(weight)) for weight in weights)
+    assert actual == pytest.approx(expected)
 
 
 def test_local_depth_descriptor_maps_detect_depth_jump() -> None:
@@ -959,6 +1126,210 @@ def test_raw_dual_starts_at_depth_identity() -> None:
     assert torch.equal(actual["inputs.logits"], expected["inputs.logits"])
     assert wrapper.metric_adapter is not None
     assert wrapper.metric_adapter.input_dim == 3
+    assert wrapper.query_fusion_stage == "late"
+
+
+def test_early_query_fusion_preserves_spatial_feedback() -> None:
+    depth_model = make_depth_model(
+        multitask="head",
+        num_query_layers=2,
+        spatial_reference_weight=0.2,
+        spatial_feedback=True,
+    ).eval()
+    wrapper = dinov2.DinoInstSegRGBD3D(
+        depth_model=depth_model,
+        rgb_fusion="raw_dual",
+        train_mode="adapter",
+        query_fusion_stage="early",
+        query_rgb_tokens=4,
+    ).eval()
+    batch = build_batch(n_inputs=9)
+
+    with torch.inference_mode():
+        output = wrapper(**batch)
+
+    assert output["logits"].shape == (2, 3, 5)
+    assert "spatial_ref" in output
+
+
+def test_dino_dual_starts_at_depth_identity() -> None:
+    depth_model = make_depth_model(multitask="head").eval()
+    wrapper = dinov2.DinoInstSegRGBD3D(
+        depth_model=depth_model,
+        rgb_fusion="dino_dual",
+        train_mode="adapter",
+        repo_or_dir="/local/dinov2",
+        backbone="dinov2_vitb14",
+        fusion_max_ratio=0.1,
+        query_rgb_tokens=4,
+    ).eval()
+    batch = build_batch(n_inputs=9)
+
+    with torch.inference_mode():
+        expected = depth_model(**batch)
+        actual = wrapper(**batch)
+
+    assert torch.equal(actual["logits"], expected["logits"])
+    assert torch.equal(actual["inputs.logits"], expected["inputs.logits"])
+    assert wrapper.metric_adapter is not None
+    assert wrapper.metric_adapter.input_dim == 8
+    assert wrapper.rgb_provider is not None
+    assert not any(parameter.requires_grad for parameter in wrapper.rgb_provider.parameters())
+
+
+def test_rgbd_dual_controls_reach_decode(monkeypatch: pytest.MonkeyPatch) -> None:
+    depth_model = make_depth_model(multitask="head").eval()
+    wrapper = dinov2.DinoInstSegRGBD3D(
+        depth_model=depth_model,
+        rgb_fusion="raw_dual",
+        train_mode="adapter",
+        fusion_max_ratio=0.1,
+        point_fusion_max_ratio=0.2,
+        query_fusion_max_ratio=0.3,
+        query_rgb_tokens=4,
+        query_fusion_stage="early",
+    ).eval()
+
+    assert wrapper.point_fusion is not None
+    assert wrapper.point_fusion.max_ratio == pytest.approx(0.2)
+    assert wrapper.query_fusion is not None
+    assert wrapper.query_fusion.max_ratio == pytest.approx(0.3)
+    assert wrapper.query_fusion_stage == "early"
+
+    seen: dict[str, object] = {}
+    original_decode = depth_model.decode
+
+    def capture_decode(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        seen["query_feat_fusion_stage"] = kwargs["query_feat_fusion_stage"]
+        return original_decode(*args, **kwargs)
+
+    monkeypatch.setattr(depth_model, "decode", capture_decode)
+    with torch.inference_mode():
+        output = wrapper(**build_batch(n_inputs=9))
+
+    assert seen["query_feat_fusion_stage"] == "early"
+    assert output["logits"].shape == (2, 3, 5)
+
+
+def test_rgbd_wrapper_exposes_effective_model_config() -> None:
+    wrapper = dinov2.DinoInstSegRGBD3D(
+        depth_model=make_depth_model(multitask="head"),
+        rgb_fusion="raw_dual",
+        point_fusion_max_ratio=0.2,
+        query_fusion_max_ratio=0.3,
+        query_fusion_stage="early",
+    )
+
+    config = wrapper.effective_model_config
+
+    assert config["model_class"] == "DinoInstSegRGBD3D"
+    assert config["multitask"] == "head"
+    assert config["rgb_fusion"] == "raw_dual"
+    assert config["point_fusion_max_ratio"] == pytest.approx(0.2)
+    assert config["query_fusion_max_ratio"] == pytest.approx(0.3)
+    assert config["query_fusion_stage"] == "early"
+    assert config["train_mode"] == "finetune"
+    assert config["rgb_repo_or_dir"] == "facebookresearch/dinov2"
+    assert config["rgb_backbone"] == "dinov2_vits14"
+    assert config["freeze_rgb_encoder"] is True
+    assert config["rgb_image_normalization"] == "auto"
+    assert config["fusion_gate_init_bias"] == pytest.approx(-10.0)
+    assert config["rgb_residual_dropout"] == pytest.approx(0.0)
+    assert config["depth_fusion_dropout"] == pytest.approx(0.0)
+    assert config["rgb_token_dropout"] == pytest.approx(0.0)
+
+
+def test_rgbd_contract_projection_matches_constructed_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    from omegaconf import OmegaConf
+
+    from train.scripts.resolve_model_contract import effective_from_config
+    from train.src.model_contract import canonical_effective_config, effective_model_config
+
+    from .. import get_model
+
+    monkeypatch.setattr(dinov2, "FeatUpPointFeatureProvider", TinyFeatUpProvider)
+    config = OmegaConf.create(
+        {
+            "model": {
+                "arch": "dino_inst_rgbd3d",
+                "bias": True,
+                "dropout": 0.0,
+                "weights": None,
+                "attn_mode": None,
+                "attn_backend": None,
+                "reduction": None,
+                "checkpoint": None,
+            },
+            "inputs": {"dim": 3, "type": "rgbd", "project": True, "nerf": False},
+            "points": {"nerf": False},
+            "train": {"loss": None, "skip": False, "resume": True},
+            "cls": {"num_classes": None},
+            "norm": {"padding": 0.0},
+            "vis": {"refinement_steps": 0},
+            "implicit": {"dvr": False},
+            "rgb_fusion": "featup_dual",
+            "point_fusion_max_ratio": 0.2,
+            "query_fusion_max_ratio": 0.3,
+            "query_fusion_stage": "early",
+            "rgbd_train_mode": "finetune",
+            "rgb_repo_or_dir": "/local/dinov2",
+            "rgb_backbone": "dinov2_vitb14",
+            "freeze_rgb_encoder": False,
+            "rgb_image_normalization": "rgb",
+            "fusion_gate_init_bias": -2.0,
+            "featup_repo": "/local/featup",
+            "featup_checkpoint": "/local/featup.ckpt",
+            "rgb_metric_checkpoint": None,
+            "rgb_residual_dropout": 0.15,
+            "depth_fusion_dropout": 0.2,
+            "rgb_token_dropout": 0.1,
+            "n_objs": 3,
+            "n_queries": 4,
+            "l_enc": 1,
+            "l_query": 1,
+            "cat_feat": False,
+            "pred_cls": "quality+objectness",
+            "match_cls": False,
+            "nerf_enc": "torch",
+            "multitask": "head",
+            "branch_quality_heads": True,
+            "branch_quality_loss_balance": "task_weights",
+            "points_weight": 1.0,
+            "inputs_weight": 0.2,
+            "matcher_points_weight": 1.0,
+            "matcher_inputs_weight": 0.0,
+        }
+    )
+
+    model = get_model(config)
+    expected = effective_from_config(config)
+
+    assert canonical_effective_config(effective_model_config(model)) == expected
+
+    plain_config = OmegaConf.create(config)
+    plain_config.model.arch = "dino_inst_mask"
+    plain_config.inputs.type = "depth"
+    plain_model = get_model(plain_config)
+    assert canonical_effective_config(effective_model_config(plain_model)) == effective_from_config(plain_config)
+
+
+def test_multitask_validation_reports_joint_score(monkeypatch: pytest.MonkeyPatch) -> None:
+    model = make_depth_model(multitask="head")
+    metric_values = {
+        "map": {"map": torch.tensor(0.8)},
+        "pq": {"pq": torch.tensor(0.7)},
+        "map_inputs": {"map": torch.tensor(0.6)},
+        "pq_inputs": {"pq": torch.tensor(0.5)},
+    }
+    for name, value in metric_values.items():
+        metric = getattr(model, name)
+        monkeypatch.setattr(metric, "compute", lambda value=value: value)
+        monkeypatch.setattr(metric, "reset", lambda: None)
+
+    results = model.on_validation_epoch_end()
+
+    expected = (0.8 * 0.7 * 0.6 * 0.5) ** 0.25
+    assert results["joint_score"].item() == pytest.approx(expected)
 
 
 def test_dino_token_cat_rejects_multi_point_decoder() -> None:
@@ -966,6 +1337,17 @@ def test_dino_token_cat_rejects_multi_point_decoder() -> None:
     depth_model.points_dec = nn.ModuleList([depth_model.points_dec])
 
     with pytest.raises(ValueError, match="single decoder"):
+        dinov2.DinoInstSegRGBD3D(depth_model=depth_model, rgb_fusion="dino_token_cat")
+
+
+def test_dino_token_cat_rejects_spatial_feedback() -> None:
+    depth_model = make_depth_model(
+        num_query_layers=2,
+        spatial_reference_weight=0.2,
+        spatial_feedback=True,
+    )
+
+    with pytest.raises(ValueError, match="spatial_feedback"):
         dinov2.DinoInstSegRGBD3D(depth_model=depth_model, rgb_fusion="dino_token_cat")
 
 
@@ -1049,6 +1431,39 @@ def test_dino_point_forward_samples_features_for_each_input_point() -> None:
     assert out["logits"].shape == (2, 3, 5)
     # one sampled feature per input point, fused on the K/V side
     assert wrapper.last_rgb_feature_shape == (2, 6, 8)
+
+
+@pytest.mark.parametrize("rgb_fusion", ["raw_point", "dino_point"])
+def test_rgb_point_fusion_preserves_depth_anchor_branches(
+    rgb_fusion: Literal["raw_point", "dino_point"],
+) -> None:
+    depth_model = make_depth_model(
+        depth_descriptor="local",
+        salient_anchor_fraction=0.5,
+        salient_candidate_multiplier=2,
+        salient_memory_attention=True,
+        voxel_anchor_resolutions=(4,),
+        voxel_neighborhood_resolutions=(4,),
+        voxel_bias_resolution=4,
+    )
+    wrapper = dinov2.DinoInstSegRGBD3D(
+        depth_model=depth_model,
+        rgb_fusion=rgb_fusion,
+        train_mode="adapter",
+    )
+
+    output = wrapper(**build_batch(n_inputs=9))
+
+    assert output["logits"].shape == (2, 3, 5)
+    logs = cast(dict[str, tuple[Any, int]], wrapper.get_log())
+    for key in (
+        "depth_descriptor/residual_norm",
+        "salient_memory/gate",
+        "voxel_anchor/residual_norm",
+        "voxel_neighborhood/residual_norm",
+        "voxel_bias/norm",
+    ):
+        assert key in logs
 
 
 def test_dino_provider_does_not_double_normalize_preprocessed_image() -> None:
@@ -1172,16 +1587,26 @@ def test_factory_builds_rgbd3d_wrapper(monkeypatch: pytest.MonkeyPatch) -> None:
             "featup_checkpoint": "test-checkpoint",
             "fusion_mode": "gate",
             "fusion_gate_init_bias": -2.0,
+            "point_fusion_max_ratio": 0.2,
+            "query_fusion_max_ratio": 0.3,
+            "query_fusion_stage": "early",
             "rgbd_train_mode": "finetune",
             "rgb_image_normalization": "rgb",
             "depth_fusion_dropout": 0.15,
             "rgb_token_dropout": 0.20,
+            "multitask": "head",
+            "branch_quality_heads": True,
+            "branch_quality_loss_balance": "task_weights",
+            "points_weight": 1.0,
+            "inputs_weight": 0.2,
+            "matcher_points_weight": 1.0,
+            "matcher_inputs_weight": 0.0,
             "n_objs": 3,
             "n_queries": 4,
             "l_enc": 1,
             "l_query": 1,
             "cat_feat": False,
-            "pred_cls": None,
+            "pred_cls": "quality+objectness",
             "match_cls": False,
             "nerf_enc": "torch",
         }
@@ -1194,6 +1619,12 @@ def test_factory_builds_rgbd3d_wrapper(monkeypatch: pytest.MonkeyPatch) -> None:
     assert model.fusion_gate_init_bias == -2.0
     assert model.depth_fusion_dropout == 0.15
     assert model.rgb_token_dropout == 0.20
+    assert model.point_fusion is not None and model.point_fusion.max_ratio == pytest.approx(0.2)
+    assert model.query_fusion is not None and model.query_fusion.max_ratio == pytest.approx(0.3)
+    assert model.query_fusion_stage == "early"
+    assert model.depth_model.branch_quality_loss_balance == "task_weights"
+    assert model.depth_model.matcher_points_weight == 1.0
+    assert model.depth_model.matcher_inputs_weight == 0.0
 
 
 def test_factory_propagates_input_spatial_branch_controls() -> None:
@@ -1225,9 +1656,17 @@ def test_factory_propagates_input_spatial_branch_controls() -> None:
             "l_enc": 1,
             "l_query": 1,
             "cat_feat": False,
-            "pred_cls": None,
+            "pred_cls": "quality+objectness",
             "match_cls": False,
             "nerf_enc": "torch",
+            "multitask": "head",
+            "branch_quality_heads": True,
+            "branch_quality_loss_balance": "task_weights",
+            "inputs_stop_gradient": True,
+            "points_weight": 1.0,
+            "inputs_weight": 0.2,
+            "matcher_points_weight": 1.0,
+            "matcher_inputs_weight": 0.0,
             "depth_descriptor": "local",
             "voxel_anchor_resolutions": [4, 8],
             "extent_weight": 0.25,
@@ -1244,6 +1683,34 @@ def test_factory_propagates_input_spatial_branch_controls() -> None:
     assert model.extent_weight == pytest.approx(0.25)
     assert model.extent_quantile_temperature == pytest.approx(0.03)
     assert model.allow_branch_warmstart is True
+    assert model.branch_quality_heads is True
+    assert model.branch_quality_loss_balance == "task_weights"
+    assert model.inputs_stop_gradient is True
+    assert model.matcher_points_weight == 1.0
+    assert model.matcher_inputs_weight == 0.0
+
+
+def test_resolver_keeps_constructor_default_when_override_is_absent() -> None:
+    from omegaconf import OmegaConf
+
+    from .. import resolve_dino_instseg3d_kwargs, resolve_dino_instseg_rgbd3d_kwargs
+
+    cfg = OmegaConf.create(
+        {
+            "inputs": {"dim": 3},
+            "model": {"bias": True, "dropout": 0.0},
+            "train": {"loss": None},
+        }
+    )
+
+    resolved = resolve_dino_instseg3d_kwargs(cfg)
+
+    assert resolved["branch_quality_loss_balance"] == "equal"
+    assert resolved["matcher_points_weight"] is None
+    assert resolved["matcher_inputs_weight"] is None
+
+    rgbd_resolved = resolve_dino_instseg_rgbd3d_kwargs(OmegaConf.create({"rgb_fusion": None}))
+    assert rgbd_resolved["rgb_fusion"] == "none"
 
 
 def test_factory_rgbd3d_arch_wins_over_kinect_input_type(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1317,16 +1784,26 @@ def test_adapter_optimizer_has_single_group() -> None:
     assert lrs == {1e-4}
 
 
-def test_predict_with_data_containing_inputs_does_not_collide() -> None:
+def test_predict_with_data_containing_inputs_does_not_collide(monkeypatch: pytest.MonkeyPatch) -> None:
     # Regression: predict(**batch, data=batch) must not raise TypeError from a
-    # duplicate `inputs` kwarg when encoding (generator.py:264 call pattern).
+    # duplicate `inputs` kwarg when encoding (generator.py:264 call pattern), and
+    # data-only prediction must preserve the separate query point set.
     depth_model = make_depth_model()
     wrapper = dinov2.DinoInstSegRGBD3D(depth_model=depth_model, rgb_fusion="raw_point")
     batch = build_batch()
+    seen: dict[str, Any] = {}
+    original_decode = depth_model.decode
+
+    def capture_decode(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        seen.update(kwargs)
+        return original_decode(*args, **kwargs)
+
+    monkeypatch.setattr(depth_model, "decode", capture_decode)
     wrapper.train(False)
     with torch.inference_mode():
-        out = wrapper.predict(**batch, data=batch)
+        out = wrapper.predict(data=batch)
     assert out is not None
+    assert torch.equal(cast(Tensor, seen["points"]), batch["points"])
 
 
 def test_predict_accepts_precomputed_feature() -> None:
@@ -1342,6 +1819,75 @@ def test_predict_accepts_precomputed_feature() -> None:
         feature = wrapper.encode(inputs=batch["inputs"], **enc_kwargs)
         out = wrapper.predict(points=batch["points"], feature=feature, data=batch)
     assert out is not None
+
+
+def test_predict_prepares_decode_side_rgb_fusion(monkeypatch: pytest.MonkeyPatch) -> None:
+    depth_model = make_depth_model(multitask="head")
+    wrapper = dinov2.DinoInstSegRGBD3D(
+        depth_model=depth_model,
+        rgb_fusion="raw_dual",
+        train_mode="adapter",
+        query_rgb_tokens=4,
+    )
+    batch = build_batch()
+    seen: dict[str, Any] = {}
+    original_decode = depth_model.decode
+
+    def capture_decode(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        seen.update(kwargs)
+        return original_decode(*args, **kwargs)
+
+    monkeypatch.setattr(depth_model, "decode", capture_decode)
+    wrapper.eval()
+    with torch.inference_mode():
+        out = wrapper.predict(**batch, data=batch)
+
+    assert out is not None
+    assert seen["inputs_feat_fusion"] is wrapper.point_fusion
+    assert seen["query_feat_fusion"] is wrapper.query_fusion
+    assert torch.is_tensor(seen["inputs_aux_feat"])
+    assert torch.is_tensor(seen["query_aux_feat"])
+
+
+@pytest.mark.parametrize("rgb_fusion", ["raw_dual", "raw_point", "dino_point"])
+def test_predict_precomputed_feature_recovers_spatial_positions(
+    monkeypatch: pytest.MonkeyPatch,
+    rgb_fusion: Literal["raw_dual", "raw_point", "dino_point"],
+) -> None:
+    depth_model = make_depth_model(
+        cat_feat=True,
+        cls_token=True,
+        num_query_layers=2,
+        spatial_reference_weight=0.2,
+        spatial_feedback=True,
+    )
+    wrapper = dinov2.DinoInstSegRGBD3D(
+        depth_model=depth_model,
+        rgb_fusion=rgb_fusion,
+        train_mode="adapter",
+        query_rgb_tokens=4,
+    )
+    batch = build_batch()
+    encode_kwargs = {key: value for key, value in batch.items() if key not in {"inputs", "points"}}
+    seen: dict[str, Any] = {}
+    original_decode = depth_model.decode
+
+    def capture_decode(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        seen.update(kwargs)
+        return original_decode(*args, **kwargs)
+
+    monkeypatch.setattr(depth_model, "decode", capture_decode)
+    wrapper.eval()
+    with torch.inference_mode():
+        feature = wrapper.encode(inputs=batch["inputs"], **encode_kwargs)
+        _, expected_positions = wrapper.encode_with_positions(inputs=batch["inputs"], **encode_kwargs)
+        out = wrapper.predict(points=batch["points"], feature=feature, data=batch)
+
+    assert out is not None
+    assert torch.is_tensor(seen["anchor_positions"])
+    assert seen["anchor_positions"].shape == (2, 17, 3)
+    assert expected_positions is not None
+    assert torch.equal(seen["anchor_positions"], expected_positions)
 
 
 def test_predict_none_matches_depth_model() -> None:

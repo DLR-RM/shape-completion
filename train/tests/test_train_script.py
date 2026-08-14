@@ -319,6 +319,54 @@ def test_run_smoke_exercises_training_flow(monkeypatch: pytest.MonkeyPatch, tmp_
     assert isinstance(_FakeTrainer.instances[0].kwargs["logger"], _FakeTensorBoardLogger)
 
 
+def test_model_contract_failure_stops_before_device_transfer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class TrackingModel(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.to_called = False
+
+        def to(self, *args: Any, **kwargs: Any) -> TrackingModel:
+            self.to_called = True
+            raise AssertionError("model was transferred before contract verification")
+
+    model = TrackingModel()
+    cfg = _base_cfg()
+    cfg.model_contract_path = str(tmp_path / "contract.json")
+    cfg.model_contract_sha256 = "contract-hash"
+
+    monkeypatch.setattr(train_script, "setup_config", lambda cfg, **_kwargs: cfg)
+    monkeypatch.setattr(train_script, "suppress_known_optional_dependency_warnings", lambda: None)
+    monkeypatch.setattr(train_script, "log_optional_dependency_summary", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(train_script, "resolve_save_dir", lambda _cfg: tmp_path / "run")
+    monkeypatch.setattr(
+        train_script.HydraConfig,
+        "get",
+        lambda: SimpleNamespace(job=SimpleNamespace(config_name="contract-test")),
+    )
+    monkeypatch.setattr(train_script, "get_dataset", lambda _cfg, splits: {split: _ToyDataset() for split in splits})
+    monkeypatch.setattr(train_script, "get_num_workers", lambda value: value)
+    monkeypatch.setattr(train_script, "get_collate_fn", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(train_script, "get_model", lambda _cfg: model)
+    monkeypatch.setattr(train_script, "LitDataModule", _FakeLitDataModule)
+
+    def reject_contract(*_args: Any, **_kwargs: Any) -> None:
+        raise ValueError("contract mismatch")
+
+    monkeypatch.setattr(
+        train_script,
+        "verify_and_write_model_contract",
+        reject_contract,
+    )
+
+    with pytest.raises(ValueError, match="contract mismatch"):
+        train_script.run(cfg)
+
+    assert model.to_called is False
+
+
 def test_run_smoke_wandb_and_compile(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     save_dir = tmp_path / "wandb_run"
     finished: list[str] = []

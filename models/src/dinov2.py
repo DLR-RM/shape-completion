@@ -3,7 +3,8 @@ import math
 import random
 import time
 import warnings
-from collections.abc import Sequence
+from collections import OrderedDict
+from collections.abc import Callable, Sequence
 from functools import partial
 from logging import DEBUG
 from pathlib import Path
@@ -36,7 +37,7 @@ from utils import (
 from .dpt import DPTHead
 from .fpn import FPN, SimpleConvDecoder
 from .grid import GridDecoder
-from .mixins import EMPTY_EVAL_RESULTS_DICT, MultiEvalMixin, MultiLossMixin, PredictMixin
+from .mixins import EMPTY_EVAL_RESULTS_DICT, BatchDict, MultiEvalMixin, MultiLossMixin, PredictMixin
 from .model import Model
 from .transformer import MLP, TCNN_EXISTS, Block, Decoder, DecoderBlock, Encoder, HashGridEncoding, NeRFEncoding
 from .utils import (
@@ -75,12 +76,12 @@ from .utils import (
 
 logger = setup_logger(__name__)
 
-LEGACY_DINO_V2_REPO = "facebookresearch/dinov2:81b2b6419385a321287de91e00282ef7cbd26f94"
-
 
 def _load_dino_backbone(repo_or_dir: str, backbone: str, **kwargs: Any) -> Any:
     if "verbose" not in kwargs:
         kwargs["verbose"] = False
+    if Path(repo_or_dir).is_dir() and "source" not in kwargs:
+        kwargs["source"] = "local"
     return cast(Any, torch.hub.load(repo_or_dir, backbone, **kwargs))
 
 
@@ -89,6 +90,9 @@ def _require_tensor(data: dict[str, Any], key: str) -> Tensor:
     if not isinstance(value, Tensor):
         raise TypeError(f"Expected tensor for `{key}`")
     return value
+
+
+LEGACY_DINO_V2_REPO = "facebookresearch/dinov2:81b2b6419385a321287de91e00282ef7cbd26f94"
 
 
 def _checkpoint_model_state_dict(state_dict: dict[str, Any]) -> dict[str, Any]:
@@ -2096,11 +2100,26 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
         nerf_enc: Literal["tcnn", "torch", "hash"] = "tcnn" if TCNN_EXISTS else "torch",
         nerf_freqs: int = 6,
         depth_descriptor: Literal["local"] | None = None,
+        salient_anchor_fraction: float = 0.0,
+        salient_candidate_multiplier: int = 4,
+        salient_memory_attention: bool = False,
         voxel_anchor_resolutions: Sequence[int] | None = None,
+        voxel_neighborhood_resolutions: Sequence[int] | None = None,
+        voxel_bias_resolution: int | None = None,
+        voxel_bias_clip: int = 2,
         extent_weight: float = 0.0,
         extent_quantile_temperature: float = 0.02,
+        spatial_reference_weight: float = 0.0,
+        spatial_feedback: bool = False,
+        spatial_feedback_clip: float = 8.0,
         allow_branch_warmstart: bool = False,
+        branch_quality_heads: bool = False,
+        branch_quality_loss_balance: Literal["equal", "task_weights"] = "equal",
+        inputs_stop_gradient: bool = False,
+        matcher_points_weight: float | None = None,
+        matcher_inputs_weight: float | None = None,
     ):
+        constructor_kwargs = {key: value for key, value in locals().items() if key not in {"self", "__class__"}}
         super().__init__()
         warnings.filterwarnings("ignore", message="xFormers is available.*")
         self.encoder = _load_dino_backbone(
@@ -2147,25 +2166,91 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
         self.sample = sample
         self.loss_name = loss_name
         self.multitask = multitask
+        if branch_quality_heads and not multitask:
+            raise ValueError("branch_quality_heads requires multitask mode.")
+        if branch_quality_heads and not ("obj" in self.pred_cls and "qual" in self.pred_cls):
+            raise ValueError("branch_quality_heads requires quality+objectness prediction.")
+        if inputs_stop_gradient and not branch_quality_heads:
+            raise ValueError("inputs_stop_gradient requires branch_quality_heads.")
+        if (matcher_points_weight is None) != (matcher_inputs_weight is None):
+            raise ValueError("matcher_points_weight and matcher_inputs_weight must be set together.")
+        if matcher_points_weight is not None and not multitask:
+            raise ValueError("Independent matcher branch weights require multitask mode.")
+        if matcher_points_weight is not None and matcher_inputs_weight is not None:
+            if (
+                not math.isfinite(matcher_points_weight)
+                or not math.isfinite(matcher_inputs_weight)
+                or matcher_points_weight < 0
+                or matcher_inputs_weight < 0
+                or matcher_points_weight + matcher_inputs_weight <= 0
+            ):
+                raise ValueError("Matcher branch weights must be nonnegative, finite, and have a positive sum.")
+        if branch_quality_loss_balance not in {"equal", "task_weights"}:
+            raise ValueError("branch_quality_loss_balance must be 'equal' or 'task_weights'.")
+        if branch_quality_heads and branch_quality_loss_balance == "task_weights":
+            if learn_loss_weights:
+                raise ValueError("task-weighted branch quality requires fixed task weights.")
+            if (
+                not math.isfinite(points_weight)
+                or not math.isfinite(inputs_weight)
+                or points_weight < 0
+                or inputs_weight < 0
+                or points_weight + inputs_weight <= 0
+            ):
+                raise ValueError("Branch quality task weights must be nonnegative, finite, and have a positive sum.")
+        self.branch_quality_heads = branch_quality_heads
+        self.branch_quality_loss_balance = branch_quality_loss_balance
+        self.inputs_stop_gradient = inputs_stop_gradient
+        self._matcher_points_weight = matcher_points_weight
+        self._matcher_inputs_weight = matcher_inputs_weight
+        self._constructor_kwargs = constructor_kwargs
         self.cls_threshold = cls_threshold
         self.min_mask_size = min_mask_size
         self.apply_filter = apply_filter
         self.focal_alpha = focal_alpha
         self.focal_gamma = focal_gamma
         self.depth_descriptor = depth_descriptor
+        self.salient_anchor_fraction = float(salient_anchor_fraction)
+        self.salient_candidate_multiplier = int(salient_candidate_multiplier)
+        self.salient_memory_attention = bool(salient_memory_attention)
         self.voxel_anchor_resolutions = tuple(int(r) for r in (voxel_anchor_resolutions or ()))
+        self.voxel_neighborhood_resolutions = tuple(int(r) for r in (voxel_neighborhood_resolutions or ()))
+        self.voxel_bias_resolution = None if voxel_bias_resolution is None else int(voxel_bias_resolution)
+        self.voxel_bias_clip = int(voxel_bias_clip)
         self.extent_weight = float(extent_weight)
         self.extent_quantile_temperature = float(extent_quantile_temperature)
+        self.spatial_reference_weight = float(spatial_reference_weight)
+        self.spatial_feedback = bool(spatial_feedback)
+        self.spatial_feedback_clip = float(spatial_feedback_clip)
         self.allow_branch_warmstart = allow_branch_warmstart
 
         if self.depth_descriptor not in (None, "local"):
             raise ValueError(f"Unsupported depth descriptor: {self.depth_descriptor}")
-        if any(r < 2 for r in self.voxel_anchor_resolutions):
-            raise ValueError("voxel_anchor_resolutions must contain integers greater than one")
+        if not 0 <= self.salient_anchor_fraction < 1:
+            raise ValueError("salient_anchor_fraction must be in [0, 1)")
+        if self.salient_anchor_fraction > 0 and self.depth_descriptor != "local":
+            raise ValueError("salient anchors require depth_descriptor='local'")
+        if self.salient_candidate_multiplier < 1:
+            raise ValueError("salient_candidate_multiplier must be positive")
+        if self.salient_memory_attention and self.salient_anchor_fraction <= 0:
+            raise ValueError("salient_memory_attention requires salient_anchor_fraction > 0")
+        voxel_resolutions = self.voxel_anchor_resolutions + self.voxel_neighborhood_resolutions
+        if any(r < 2 for r in voxel_resolutions):
+            raise ValueError("voxel resolutions must contain integers greater than one")
+        if self.voxel_bias_resolution is not None and self.voxel_bias_resolution < 2:
+            raise ValueError("voxel_bias_resolution must be greater than one")
+        if self.voxel_bias_clip < 1:
+            raise ValueError("voxel_bias_clip must be positive")
         if self.extent_weight < 0:
             raise ValueError("extent_weight must be non-negative")
         if self.extent_quantile_temperature <= 0:
             raise ValueError("extent_quantile_temperature must be positive")
+        if self.spatial_reference_weight < 0:
+            raise ValueError("spatial_reference_weight must be non-negative")
+        if self.spatial_feedback and self.spatial_reference_weight <= 0:
+            raise ValueError("spatial_feedback requires spatial_reference_weight > 0")
+        if self.spatial_feedback_clip <= 0:
+            raise ValueError("spatial_feedback_clip must be positive")
 
         self.map = MeanAveragePrecision3D()
         self.pq = PanopticQuality3D()
@@ -2228,6 +2313,22 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
                 "voxel_output.",
             )
 
+        if self.voxel_neighborhood_resolutions:
+            neighborhood_dim = self.n_embd * len(self.voxel_neighborhood_resolutions)
+            self.voxel_neighborhood_output = nn.Sequential(
+                nn.LayerNorm(neighborhood_dim),
+                nn.Linear(neighborhood_dim, self.n_embd),
+            )
+            nn.init.zeros_(cast(nn.Linear, self.voxel_neighborhood_output[-1]).weight)
+            nn.init.zeros_(cast(nn.Linear, self.voxel_neighborhood_output[-1]).bias)
+            self._branch_warmstart_prefixes += ("voxel_neighborhood_output.",)
+
+        if self.voxel_bias_resolution is not None:
+            num_relative_cells = (2 * self.voxel_bias_clip + 1) ** 3
+            self.voxel_relative_bias = nn.Embedding(num_relative_cells, self.n_head)
+            nn.init.zeros_(self.voxel_relative_bias.weight)
+            self._branch_warmstart_prefixes += ("voxel_relative_bias.",)
+
         if num_enc_layers == 1:
             self.inputs_enc = DecoderBlock(
                 n_embd=self.n_embd,
@@ -2248,6 +2349,18 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
                 hidden_layer_multiplier=mlp_ratio,
                 chunks=2,
             )
+
+        if self.salient_memory_attention:
+            self.salient_inputs_enc = DecoderBlock(
+                n_embd=self.n_embd,
+                n_head=self.n_head,
+                bias=bias,
+                dropout=dropout,
+                hidden_layer_multiplier=mlp_ratio,
+                chunks=2,
+            )
+            self.salient_memory_gate = nn.Parameter(torch.zeros(()))
+            self._branch_warmstart_prefixes += ("salient_inputs_enc.", "salient_memory_gate")
 
         self.query_pos = nn.Embedding(num_objs, self.n_embd)
         if num_query_layers is None:
@@ -2320,6 +2433,17 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
                 nn.Linear(2 * self.n_embd, self.n_embd),
             )
 
+        if self.spatial_reference_weight > 0:
+            self.spatial_reference_head = nn.Linear(self.n_embd, 4)
+            nn.init.zeros_(self.spatial_reference_head.weight)
+            nn.init.zeros_(self.spatial_reference_head.bias)
+            with torch.no_grad():
+                self.spatial_reference_head.bias[3] = math.log(0.25)
+            self._branch_warmstart_prefixes += ("spatial_reference_head.",)
+            if self.spatial_feedback:
+                self.spatial_feedback_gate = nn.Parameter(torch.zeros(()))
+                self._branch_warmstart_prefixes += ("spatial_feedback_gate",)
+
         if multitask:
             if "head" in str(multitask):
                 self.inputs_head = copy.deepcopy(self.points_head)
@@ -2347,6 +2471,9 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
                         nn.GELU(),
                         nn.Linear(self.n_embd // 2, 1),
                     )
+                if branch_quality_heads:
+                    self.inputs_cls_quality_head = copy.deepcopy(self.cls_quality_head)
+                    self._branch_warmstart_prefixes += ("inputs_cls_quality_head.",)
 
         if mlp_occ_head:
             self.occ_head = MLP(self.n_embd * 2, n_out=1, bias=bias, dropout=dropout)
@@ -2386,13 +2513,29 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
                 self._inputs_weight = nn.Parameter(torch.tensor(-math.log(2.0 * inputs_weight)))
 
     def load_state_dict(self, state_dict: dict[str, Any], *args, strict: bool = True, **kwargs):
-        allow_branch_warmstart = getattr(self, "allow_branch_warmstart", False)
-        branch_warmstart_prefixes = getattr(self, "_branch_warmstart_prefixes", ())
-        if not strict or not allow_branch_warmstart or not branch_warmstart_prefixes:
+        if (
+            not strict
+            or not getattr(self, "allow_branch_warmstart", False)
+            or not getattr(self, "_branch_warmstart_prefixes", ())
+        ):
             if _is_legacy_dino_inst_seg_3d_state_dict(state_dict):
                 kwargs.setdefault("fuzzy_match", False)
                 kwargs.setdefault("shape_suffix_match", False)
             return super().load_state_dict(state_dict, *args, strict=strict, **kwargs)
+
+        if hasattr(self, "inputs_cls_quality_head"):
+            state_dict_copy = cast(Any, OrderedDict(state_dict))
+            metadata = getattr(state_dict, "_metadata", None)
+            if metadata is not None:
+                state_dict_copy._metadata = metadata
+            state_dict = state_dict_copy
+            input_prefix = "inputs_cls_quality_head."
+            quality_prefix = "cls_quality_head."
+            if not any(str(key).startswith(input_prefix) for key in state_dict):
+                for key, value in list(state_dict.items()):
+                    key_str = str(key)
+                    if key_str.startswith(quality_prefix):
+                        state_dict[input_prefix + key_str.removeprefix(quality_prefix)] = value.clone()
 
         warmstart_kwargs = dict(kwargs)
         warmstart_kwargs.setdefault("fuzzy_match", False)
@@ -2401,7 +2544,7 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
         invalid_missing = [
             key
             for key in incompatible.missing_keys
-            if not any(key.startswith(prefix) for prefix in branch_warmstart_prefixes)
+            if not any(key.startswith(prefix) for prefix in self._branch_warmstart_prefixes)
         ]
         if invalid_missing or incompatible.unexpected_keys:
             missing = ", ".join(invalid_missing) or "none"
@@ -2460,6 +2603,45 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
         if isinstance(self._inputs_weight, nn.Parameter):
             return 0.5 * torch.exp(-self._inputs_weight)
         return self._inputs_weight
+
+    @property
+    def matcher_points_weight(self) -> float | Tensor:
+        if self._matcher_points_weight is None:
+            return self.points_weight
+        return self._matcher_points_weight
+
+    @property
+    def matcher_inputs_weight(self) -> float | Tensor:
+        if self._matcher_inputs_weight is None:
+            return self.inputs_weight
+        return self._matcher_inputs_weight
+
+    @property
+    def effective_model_config(self) -> dict[str, Any]:
+        """Return constructor-bound settings used by scientific contract checks."""
+        return {
+            "model_class": type(self).__name__,
+            "constructor_kwargs": dict(self._constructor_kwargs),
+            "branch_quality_heads": self.branch_quality_heads,
+            "branch_quality_loss_balance": self.branch_quality_loss_balance,
+            "inputs_stop_gradient": self.inputs_stop_gradient,
+            "multitask": self.multitask,
+            "pred_cls": self.pred_cls,
+            "points_weight": self._constructor_kwargs["points_weight"],
+            "inputs_weight": self._constructor_kwargs["inputs_weight"],
+            "matcher_points_weight": self._matcher_points_weight,
+            "matcher_inputs_weight": self._matcher_inputs_weight,
+            "depth_descriptor": self.depth_descriptor,
+            "salient_anchor_fraction": self.salient_anchor_fraction,
+            "salient_candidate_multiplier": self.salient_candidate_multiplier,
+            "salient_memory_attention": self.salient_memory_attention,
+            "voxel_anchor_resolutions": self.voxel_anchor_resolutions,
+            "voxel_neighborhood_resolutions": self.voxel_neighborhood_resolutions,
+            "voxel_bias_resolution": self.voxel_bias_resolution,
+            "spatial_reference_weight": self.spatial_reference_weight,
+            "spatial_feedback": self.spatial_feedback,
+            "allow_branch_warmstart": self.allow_branch_warmstart,
+        }
 
     def _init_weights(self):
         # Queries: identity pass-through at init
@@ -2537,6 +2719,9 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
         if hasattr(self, "cls_quality_head"):
             q_prior = 0.5
             init_cls_head_with_prior(self.cls_quality_head, q_prior)
+        if hasattr(self, "inputs_cls_quality_head"):
+            q_prior = 0.5
+            init_cls_head_with_prior(self.inputs_cls_quality_head, q_prior)
 
         if hasattr(self, "occ_head"):
             nn.init.normal_(self.occ_head.c_proj.weight, mean=0.0, std=1e-3)
@@ -2837,8 +3022,9 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
             if inputs_feat is None:
                 raise ValueError("inputs_feat is required in multitask mode.")
             head_in = getattr(self, "inputs_head", self.points_head)
-            q_in = head_in(x)
-            p_in = inputs_feat
+            inputs_x = x.detach() if self.inputs_stop_gradient else x
+            q_in = head_in(inputs_x)
+            p_in = inputs_feat.detach() if self.inputs_stop_gradient else inputs_feat
             if self.cos_sim:
                 q_in = F.normalize(q_in, dim=-1)
                 p_in = F.normalize(p_in, dim=-1)
@@ -2852,6 +3038,9 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
             out["cls_logits"] = self.cls_head(x).squeeze(2)
             if hasattr(self, "cls_quality_head"):
                 out["cls_quality"] = self.cls_quality_head(x).squeeze(2)
+                if hasattr(self, "inputs_cls_quality_head"):
+                    inputs_x = x.detach() if self.inputs_stop_gradient else x
+                    out["inputs.cls_quality"] = self.inputs_cls_quality_head(inputs_x).squeeze(2)
         return out
 
     @staticmethod
@@ -2910,6 +3099,27 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
         descriptors = maps.permute(0, 2, 3, 1)[batch, rows, cols]
         return descriptors.to(device=inputs.device, dtype=inputs.dtype)
 
+    def _mixed_fps_indices(self, inputs: Tensor, descriptors: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+        """Mix scene-wide FPS anchors with FPS over high-response depth candidates."""
+        num_salient = round(self.num_queries * self.salient_anchor_fraction)
+        num_salient = min(max(num_salient, 1), self.num_queries - 1)
+        num_global = self.num_queries - num_salient
+        global_idx = cast(Tensor, furthest_point_sample(inputs, num_samples=num_global, return_indices=True))
+
+        saliency = (descriptors[..., 0] + descriptors[..., 1]) * descriptors[..., 2]
+        saliency = saliency.clone()
+        saliency.scatter_(1, global_idx, float("-inf"))
+        available = max(inputs.size(1) - num_global, 1)
+        num_candidates = min(available, max(num_salient, num_salient * self.salient_candidate_multiplier))
+        candidate_idx = saliency.topk(num_candidates, dim=1).indices
+        candidate_points = torch.gather(inputs, 1, candidate_idx.unsqueeze(-1).expand(-1, -1, inputs.size(-1)))
+        local_idx = cast(
+            Tensor,
+            furthest_point_sample(candidate_points, num_samples=num_salient, return_indices=True),
+        )
+        salient_idx = torch.gather(candidate_idx, 1, local_idx)
+        return torch.cat((global_idx, salient_idx), dim=1), salient_idx, candidate_idx
+
     @staticmethod
     def _voxel_neighbor_counts(cells: Tensor, anchor_cells: Tensor, resolution: int) -> Tensor:
         """Count points in the anchor cell and its six face-adjacent cells."""
@@ -2961,6 +3171,104 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
 
         local = self.voxel_local_mlp(torch.cat(local_features, dim=-1))
         return self.voxel_output(identity + local)
+
+    @staticmethod
+    def _normalized_voxel_cells(inputs: Tensor, resolution: int) -> Tensor:
+        mins = inputs.amin(dim=1, keepdim=True)
+        spans = (inputs.amax(dim=1, keepdim=True) - mins).clamp_min(1e-6)
+        normalized = ((inputs - mins) / spans).clamp(0.0, 1.0)
+        return (normalized * resolution).floor().long().clamp(0, resolution - 1)
+
+    def _voxel_neighborhood_residual(self, inputs: Tensor, memory: Tensor, fps_idx: Tensor) -> Tensor:
+        """Aggregate learned point features from each anchor's occupied 3x3x3 voxel neighborhood."""
+        batch_size, _, channels = memory.shape
+        anchor_idx = fps_idx.unsqueeze(-1).expand(-1, -1, 3)
+        outputs: list[Tensor] = []
+        for resolution in self.voxel_neighborhood_resolutions:
+            cells = self._normalized_voxel_cells(inputs, resolution)
+            linear = cells[..., 0] * resolution * resolution + cells[..., 1] * resolution + cells[..., 2]
+            num_cells = resolution**3
+            sums = memory.new_zeros((batch_size, num_cells, channels))
+            sums.scatter_add_(1, linear.unsqueeze(-1).expand(-1, -1, channels), memory)
+            counts = memory.new_zeros((batch_size, num_cells, 1))
+            counts.scatter_add_(1, linear.unsqueeze(-1), memory.new_ones((*linear.shape, 1)))
+
+            sums_3d = sums.transpose(1, 2).reshape(batch_size, channels, resolution, resolution, resolution)
+            counts_3d = counts.transpose(1, 2).reshape(batch_size, 1, resolution, resolution, resolution)
+            neighborhood_sums = F.avg_pool3d(sums_3d, kernel_size=3, stride=1, padding=1) * 27
+            neighborhood_counts = F.avg_pool3d(counts_3d, kernel_size=3, stride=1, padding=1) * 27
+            neighborhood_means = neighborhood_sums / neighborhood_counts.clamp_min(1)
+            neighborhood_means = neighborhood_means.flatten(2).transpose(1, 2)
+
+            anchor_cells = torch.gather(cells, dim=1, index=anchor_idx)
+            anchor_linear = (
+                anchor_cells[..., 0] * resolution * resolution
+                + anchor_cells[..., 1] * resolution
+                + anchor_cells[..., 2]
+            )
+            outputs.append(
+                torch.gather(
+                    neighborhood_means,
+                    1,
+                    anchor_linear.unsqueeze(-1).expand(-1, -1, channels),
+                )
+            )
+        return self.voxel_neighborhood_output(torch.cat(outputs, dim=-1))
+
+    def _voxel_anchor_attention_bias(self, inputs: Tensor, fps_idx: Tensor) -> Tensor:
+        if self.voxel_bias_resolution is None:
+            raise RuntimeError("voxel_bias_resolution is disabled")
+        cells = self._normalized_voxel_cells(inputs, self.voxel_bias_resolution)
+        anchor_cells = torch.gather(cells, 1, fps_idx.unsqueeze(-1).expand(-1, -1, 3))
+        relative = anchor_cells.unsqueeze(2) - anchor_cells.unsqueeze(1)
+        relative = relative.clamp(-self.voxel_bias_clip, self.voxel_bias_clip) + self.voxel_bias_clip
+        width = 2 * self.voxel_bias_clip + 1
+        indices = relative[..., 0] * width * width + relative[..., 1] * width + relative[..., 2]
+        return self.voxel_relative_bias(indices).permute(0, 3, 1, 2)
+
+    def _predict_spatial_reference(self, queries: Tensor) -> Tensor:
+        reference = self.spatial_reference_head(self.head_norm(queries))
+        return torch.cat((reference[..., :3], reference[..., 3:].clamp(-6.0, 3.0)), dim=-1)
+
+    def _spatial_cross_attention_bias(self, reference: Tensor, positions: Tensor) -> Tensor:
+        center = reference[..., :3]
+        radius = reference[..., 3:].exp().clamp_min(1e-4)
+        squared_distance = (center.unsqueeze(2) - positions.unsqueeze(1)).square().sum(dim=-1)
+        bias = -0.5 * squared_distance / radius.square()
+        bias = bias.clamp(min=-self.spatial_feedback_clip, max=0.0)
+        raw_gate = self.spatial_feedback_gate
+        nonnegative_gate = raw_gate + (raw_gate.clamp_min(0.0) - raw_gate).detach()
+        return (nonnegative_gate * bias).unsqueeze(1)
+
+    @staticmethod
+    def _spatial_reference_loss(
+        reference: Tensor,
+        points: Tensor,
+        targets: Tensor,
+        batch_idx: Tensor,
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        if reference.numel() == 0:
+            zero = reference.sum()
+            return zero, zero.detach(), zero.detach()
+        matched_points = points[batch_idx]
+        target_mask = targets > 0.5
+        valid = target_mask.any(dim=1)
+        if not valid.any():
+            zero = reference.sum() * 0.0
+            return zero, zero.detach(), zero.detach()
+
+        matched_points = matched_points[valid]
+        target_mask = target_mask[valid]
+        reference = reference[valid]
+        inf = torch.full_like(matched_points, torch.inf)
+        gt_min = torch.where(target_mask.unsqueeze(-1), matched_points, inf).amin(dim=1)
+        gt_max = torch.where(target_mask.unsqueeze(-1), matched_points, -inf).amax(dim=1)
+        gt_center = (gt_min + gt_max) / 2
+        distance = (matched_points - gt_center.unsqueeze(1)).norm(dim=-1)
+        gt_radius = torch.where(target_mask, distance, 0.0).amax(dim=1).clamp_min(1e-4)
+        center_error = F.l1_loss(reference[..., :3], gt_center)
+        log_radius_error = F.l1_loss(reference[..., 3], gt_radius.log())
+        return center_error + log_radius_error, center_error.detach(), log_radius_error.detach()
 
     @staticmethod
     def _soft_support_quantiles(
@@ -3032,29 +3340,83 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
         return torch.empty((0, width), dtype=torch.bool, device=point_masks[0].device if point_masks else None)
 
     def forward(self, inputs: Tensor, points: Tensor | None = None, **kwargs) -> dict[str, Any]:
-        feature = self.encode(inputs=inputs, **kwargs)
+        feature, anchor_positions = self._encode_with_positions(inputs=inputs, **kwargs)
         _points = inputs if points is None else points
-        return self.decode(points=_points, feature=feature, inputs=inputs, **kwargs)
+        return self.decode(
+            points=_points,
+            feature=feature,
+            inputs=inputs,
+            anchor_positions=anchor_positions,
+            **kwargs,
+        )
 
     def encode(self, inputs: Tensor, **kwargs) -> Tensor:
-        need_indices = self.depth_descriptor is not None or bool(self.voxel_anchor_resolutions)
+        feature, _ = self._encode_with_positions(inputs, **kwargs)
+        return feature
+
+    def encode_with_positions(self, inputs: Tensor, **kwargs) -> tuple[Tensor, Tensor]:
+        return self._encode_with_positions(inputs, **kwargs)
+
+    def _select_feature_anchors(
+        self,
+        inputs: Tensor,
+        kwargs: dict[str, Any],
+    ) -> tuple[Tensor, Tensor | None, Tensor | None, Tensor | None, Tensor | None]:
+        descriptors = None
+        if self.depth_descriptor == "local":
+            descriptors = self._point_depth_descriptors(inputs, kwargs)
+
+        salient_idx = None
+        candidate_idx = None
+        need_indices = (
+            self.depth_descriptor is not None
+            or bool(self.voxel_anchor_resolutions)
+            or bool(self.voxel_neighborhood_resolutions)
+            or self.voxel_bias_resolution is not None
+        )
         fps_idx = None
-        if need_indices:
+        if self.salient_anchor_fraction > 0:
+            if descriptors is None:
+                raise RuntimeError("Salient anchors require local depth descriptors")
+            fps_idx, salient_idx, candidate_idx = self._mixed_fps_indices(inputs, descriptors)
+        elif need_indices:
             fps_idx = cast(
                 Tensor,
                 furthest_point_sample(inputs, num_samples=self.num_queries, return_indices=True),
             )
+        if fps_idx is not None:
             gather_idx = fps_idx.unsqueeze(-1).expand(-1, -1, inputs.size(-1))
             inputs_fps = torch.gather(inputs, dim=1, index=gather_idx)
         else:
             inputs_fps = cast(Tensor, furthest_point_sample(inputs, num_samples=self.num_queries))
+        return inputs_fps, fps_idx, descriptors, salient_idx, candidate_idx
+
+    def _format_feature_positions(self, inputs: Tensor, inputs_fps: Tensor) -> Tensor:
+        feature_positions = inputs_fps
+        if self.cat_feat:
+            feature_positions = inputs_fps.repeat(1, self.num_feat_layers, 1)
+        if self.cls_token:
+            feature_positions = torch.cat((inputs.mean(dim=1, keepdim=True), feature_positions), dim=1)
+        return feature_positions
+
+    def _feature_positions(self, inputs: Tensor, **kwargs) -> Tensor:
+        inputs_fps, _, _, _, _ = self._select_feature_anchors(inputs, kwargs)
+        return self._format_feature_positions(inputs, inputs_fps)
+
+    def _encode_with_positions(
+        self,
+        inputs: Tensor,
+        memory_fusion: Callable[[Tensor], Tensor] | None = None,
+        **kwargs,
+    ) -> tuple[Tensor, Tensor]:
+        inputs_fps, fps_idx, descriptors, salient_idx, candidate_idx = self._select_feature_anchors(inputs, kwargs)
 
         memory = self.nerf_enc(inputs)
         anchors = self.nerf_enc(inputs_fps)
         if self.depth_descriptor == "local":
-            if fps_idx is None:
+            if fps_idx is None or descriptors is None:
                 raise RuntimeError("Depth descriptors require FPS indices")
-            descriptor_residual = self.depth_descriptor_mlp(self._point_depth_descriptors(inputs, kwargs))
+            descriptor_residual = self.depth_descriptor_mlp(descriptors)
             descriptor_idx = fps_idx.unsqueeze(-1).expand(-1, -1, descriptor_residual.size(-1))
             memory = memory + descriptor_residual
             anchors = anchors + torch.gather(descriptor_residual, dim=1, index=descriptor_idx)
@@ -3068,8 +3430,48 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
             voxel_residual = self._voxel_anchor_residual(inputs, fps_idx)
             anchors = anchors + voxel_residual
             self.log("voxel_anchor/residual_norm", cast(Any, voxel_residual.detach().norm(dim=-1).mean()))
+        if self.voxel_neighborhood_resolutions:
+            if fps_idx is None:
+                raise RuntimeError("Voxel neighborhood aggregation requires FPS indices")
+            voxel_neighborhood = self._voxel_neighborhood_residual(inputs, memory, fps_idx)
+            anchors = anchors + voxel_neighborhood
+            self.log(
+                "voxel_neighborhood/residual_norm",
+                cast(Any, voxel_neighborhood.detach().norm(dim=-1).mean()),
+            )
 
-        x = self.inputs_enc(anchors, memory)
+        if memory_fusion is not None:
+            memory = memory_fusion(memory)
+
+        self_attn_bias = None
+        if self.voxel_bias_resolution is not None:
+            if fps_idx is None:
+                raise RuntimeError("Relative voxel bias requires FPS indices")
+            self_attn_bias = self._voxel_anchor_attention_bias(inputs, fps_idx)
+            self.log("voxel_bias/norm", cast(Any, self_attn_bias.detach().norm(dim=(-2, -1)).mean()))
+
+        x = self.inputs_enc(anchors, memory, self_attn_bias=self_attn_bias)
+        if self.salient_memory_attention:
+            if salient_idx is None or candidate_idx is None:
+                raise RuntimeError("Salient memory attention requires salient sampling indices")
+            num_salient = salient_idx.size(1)
+            salient_anchors = anchors[:, -num_salient:]
+            salient_memory = torch.gather(
+                memory,
+                1,
+                candidate_idx.unsqueeze(-1).expand(-1, -1, memory.size(-1)),
+            )
+            salient_update = self.salient_inputs_enc(salient_anchors, salient_memory) - salient_anchors
+            x = torch.cat(
+                (
+                    x[:, :-num_salient],
+                    x[:, -num_salient:] + self.salient_memory_gate * salient_update,
+                ),
+                dim=1,
+            )
+            self.log("salient_memory/gate", cast(Any, self.salient_memory_gate.detach()))
+            self.log("salient_memory/update_norm", cast(Any, salient_update.detach().norm(dim=-1).mean()))
+
         x = torch.cat((self.encoder.cls_token.expand(len(x), -1, -1), x), dim=1)
         feat = self.encoder(x)
         if hasattr(self, "lvl_embd"):
@@ -3081,8 +3483,8 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
         if self.cat_feat:
             patch_feat = torch.cat([f[0] for f in feat], dim=1)
         if self.cls_token:
-            return torch.cat((feat[-1][1].unsqueeze(1), patch_feat), dim=1)
-        return patch_feat
+            patch_feat = torch.cat((feat[-1][1].unsqueeze(1), patch_feat), dim=1)
+        return patch_feat, self._format_feature_positions(inputs, inputs_fps)
 
     def _split_completion_feature(self, feature: Tensor) -> tuple[Tensor, Tensor | None]:
         patch_feat = feature
@@ -3118,6 +3520,7 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
     def _decode_completion_queries(
         self,
         feature: Tensor,
+        anchor_positions: Tensor | None = None,
         global_step: int | None = None,
         total_steps: int | None = None,
     ) -> tuple[Tensor, Tensor | None, Tensor | None]:
@@ -3174,13 +3577,19 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
                 x = x.detach()
 
         kv = feature
-        for layer in cast(Any, self.query_enc).layers:
+        cross_attn_bias = None
+        for i, layer in enumerate(cast(Any, self.query_enc).layers):
             layer = cast(Any, layer)
             qk = v = layer.ln_1(x)
             q = k = qk + query_pos
             x = x + layer.dp_1(layer.self_attn(q, k, v))
-            x = x + layer.dp_2(layer.cross_attn(layer.ln_2(x) + query_pos, kv, kv))
+            x = x + layer.dp_2(layer.cross_attn(layer.ln_2(x) + query_pos, kv, kv, attn_bias=cross_attn_bias))
             x = x + layer.dp_3(layer.projection(layer.ln_3(x)))
+            if self.spatial_feedback and i < len(self.query_enc.layers) - 1:
+                if anchor_positions is None:
+                    raise ValueError("spatial_feedback requires anchor_positions for streaming completion")
+                reference = self._predict_spatial_reference(x)
+                cross_attn_bias = self._spatial_cross_attention_bias(reference, anchor_positions)
 
         z = self.head_norm(x)
         q = self.points_head(z)
@@ -3193,15 +3602,29 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
         points: Tensor,
         feature: Tensor,
         inputs: Tensor | None = None,
+        anchor_positions: Tensor | None = None,
         inputs_aux_feat: Tensor | None = None,
         inputs_feat_fusion: nn.Module | None = None,
         query_aux_feat: Tensor | None = None,
         query_feat_fusion: nn.Module | None = None,
+        query_feat_fusion_stage: Literal["late", "early"] = "late",
         points_batch_size: int | None = None,
         global_step: int | None = None,
         total_steps: int | None = None,
         **kwargs,
     ) -> dict[str, Any]:
+        if query_feat_fusion_stage not in {"late", "early"}:
+            raise ValueError("query_feat_fusion_stage must be one of: late, early")
+        if query_feat_fusion_stage == "early" and query_feat_fusion is not None and not self.queries_from_feat:
+            raise ValueError("Early query fusion requires queries_from_feat.")
+
+        def fuse_queries(queries: Tensor) -> Tensor:
+            if query_feat_fusion is None:
+                return queries
+            if query_aux_feat is None:
+                raise ValueError("query_aux_feat is required when query_feat_fusion is set.")
+            return query_feat_fusion(queries, query_aux_feat)
+
         x = self.nerf_enc(points)
         patch_feat = feature
         cls_feat = None
@@ -3310,31 +3733,72 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
                 tau=tau,
                 beta=beta / tau,
             )
-            if self.aux_loss:
+            if query_feat_fusion_stage == "early":
+                if "detach" in self.queries_from_feat:
+                    x = x.detach()
+                x = fuse_queries(x)
+                if self.aux_loss:
+                    aux_out.append(self._forward_heads(x, points_feat, inputs_feat))
+            elif self.aux_loss:
                 aux_out.append(self._forward_heads(x, points_feat, inputs_feat))
                 if "detach" in self.queries_from_feat:
                     x = x.detach()
             queries = x
 
         kv = feature
+        kv_positions = anchor_positions
         if self.cat_point_feat:
             kv = torch.cat([feature, points_feat], dim=1)
+            if kv_positions is not None:
+                kv_positions = torch.cat([kv_positions, points], dim=1)
+        spatial_reference = None
+        cross_attn_bias = None
         for i, layer in enumerate(cast(Any, self.query_enc).layers):
             layer = cast(Any, layer)
             qk = v = layer.ln_1(x)
             q = k = qk + query_pos
             x = x + layer.dp_1(layer.self_attn(q, k, v))
-            x = x + layer.dp_2(layer.cross_attn(layer.ln_2(x) + query_pos, kv, kv))
+            x = x + layer.dp_2(
+                layer.cross_attn(
+                    layer.ln_2(x) + query_pos,
+                    kv,
+                    kv,
+                    attn_bias=cross_attn_bias,
+                )
+            )
             x = x + layer.dp_3(layer.projection(layer.ln_3(x)))
+            if hasattr(self, "spatial_reference_head"):
+                spatial_reference = self._predict_spatial_reference(x)
+                if self.spatial_feedback and i < len(self.query_enc.layers) - 1:
+                    if kv_positions is None:
+                        raise ValueError("spatial_feedback requires anchor_positions aligned with decoder memory")
+                    if kv_positions.size(1) != kv.size(1):
+                        raise ValueError(
+                            "anchor_positions must align with decoder memory; "
+                            f"got positions={kv_positions.shape}, memory={kv.shape}"
+                        )
+                    cross_attn_bias = self._spatial_cross_attention_bias(spatial_reference, kv_positions)
             if self.aux_loss and i < len(self.query_enc.layers) - 1:
-                aux_out.append(self._forward_heads(x, points_feat, inputs_feat))
+                aux = self._forward_heads(x, points_feat, inputs_feat)
+                if spatial_reference is not None:
+                    aux["spatial_ref"] = spatial_reference
+                aux_out.append(aux)
 
-        if query_feat_fusion is not None:
-            if query_aux_feat is None:
-                raise ValueError("query_aux_feat is required when query_feat_fusion is set.")
-            x = query_feat_fusion(x, query_aux_feat)
+        if query_feat_fusion_stage == "late":
+            x = fuse_queries(x)
 
         out = self._forward_heads(x, points_feat, inputs_feat)
+        if spatial_reference is not None:
+            out["spatial_ref"] = spatial_reference
+        if self.spatial_feedback:
+            effective_gate = self.spatial_feedback_gate.detach().clamp_min(0.0)
+            self.log("spatial_feedback/gate", cast(Any, effective_gate))
+            self.log("spatial_feedback/raw_gate", cast(Any, self.spatial_feedback_gate.detach()))
+            if cross_attn_bias is not None:
+                self.log(
+                    "spatial_feedback/bias_norm",
+                    cast(Any, cross_attn_bias.detach().norm(dim=(-2, -1)).mean()),
+                )
         if aux_out:
             out["aux_out"] = aux_out
         if self.queries_from_feat:
@@ -3406,6 +3870,7 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
         inputs: Tensor | None = None,
         points: Tensor | None = None,
         feature: Tensor | None = None,
+        anchor_positions: Tensor | None = None,
         data: dict[str, Any] | None = None,
         threshold: float = 0.5,
         method: Literal["cls"] | None = None,
@@ -3432,10 +3897,11 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
             if feature is None:
                 if inputs is None:
                     raise ValueError("inputs is required when feature is not provided.")
-                feature = self.encode(inputs=inputs, **kwargs)
+                feature, anchor_positions = self._encode_with_positions(inputs=inputs, **kwargs)
 
             q, cls_logits, cls_quality = self._decode_completion_queries(
                 feature=feature,
+                anchor_positions=anchor_positions,
                 global_step=kwargs.get("global_step"),
                 total_steps=kwargs.get("total_steps"),
             )
@@ -3729,6 +4195,7 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
         logits = cast(Tensor, data["logits"])
         cls_logits = cast(Tensor | None, data.get("cls_logits"))
         cls_quality = cast(Tensor | None, data.get("cls_quality"))
+        inputs_cls_quality = cast(Tensor | None, data.get("inputs.cls_quality"))
         queries = cast(Tensor | None, data.get("queries"))
 
         # Metrics (MAP/PQ) use single branch by default
@@ -3744,7 +4211,11 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
         if self.multitask:
             in_logits = cast(Tensor, data["inputs.logits"])
             input_masks = masks_from_labels(cast(Tensor, data["inputs.labels"]))
-            input_scores = self._get_scores(in_logits, cls_logits, cls_quality)
+            input_scores = self._get_scores(
+                in_logits,
+                cls_logits,
+                inputs_cls_quality if self.branch_quality_heads else cls_quality,
+            )
             if oracle_score in ("inputs", "both"):
                 input_scores = self._get_oracle_dice_scores(in_logits, input_masks)
             self._update_metrics(
@@ -3787,6 +4258,25 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
             self.log("extent/center_l1", cast(Any, center_error))
             self.log("extent/log_half_extent_l1", cast(Any, log_extent_error))
 
+        if self.spatial_reference_weight > 0:
+            points = data.get("points")
+            reference = data.get("spatial_ref")
+            if not isinstance(points, Tensor) or not isinstance(reference, Tensor):
+                raise ValueError("spatial reference validation requires tensor points and spatial_ref fields")
+            matched_reference = reference[(batch_idx, src_idx)]
+            spatial_targets = self._matched_completion_targets(match_masks, match, bool(self.multitask)).type_as(
+                matched_reference
+            )
+            spatial_loss, center_error, log_radius_error = self._spatial_reference_loss(
+                reference=matched_reference,
+                points=points,
+                targets=spatial_targets,
+                batch_idx=batch_idx,
+            )
+            self.log("spatial_reference/loss", cast(Any, spatial_loss))
+            self.log("spatial_reference/center_l1", cast(Any, center_error))
+            self.log("spatial_reference/log_radius_l1", cast(Any, log_radius_error))
+
         if logger.isEnabledFor(DEBUG_LEVEL_1):
             self.log("cost", cast(Any, cost))
             tgt_cls = torch.zeros_like(scores)
@@ -3828,16 +4318,16 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
                 self._log_query_metrics(queries, queries_logits)
 
         # points loss
-        loss = F.binary_cross_entropy_with_logits(points_preds, points_tgt) + dice_loss(points_preds, points_tgt)
-        val_data = {"loss": loss, "logits": points_preds, "points.occ": points_tgt}
+        loss = self._get_eval_mask_loss(points_preds, points_tgt)
+        val_data: BatchDict = {"loss": loss, "logits": points_preds, "points.occ": points_tgt}
         results = super().evaluate(val_data, threshold=threshold, prefix=prefix, **kwargs)
 
         # inputs loss (if multitask)
         if self.multitask:
             if inputs_preds is None or inputs_tgt is None:
                 raise ValueError("inputs predictions and targets are required in multitask mode.")
-            loss_in = F.binary_cross_entropy_with_logits(inputs_preds, inputs_tgt) + dice_loss(inputs_preds, inputs_tgt)
-            val_data_in = {"loss": loss_in, "logits": inputs_preds, "points.occ": inputs_tgt}
+            loss_in = self._get_eval_mask_loss(inputs_preds, inputs_tgt)
+            val_data_in: BatchDict = {"loss": loss_in, "logits": inputs_preds, "points.occ": inputs_tgt}
             results.update(super().evaluate(val_data_in, threshold=threshold, prefix=f"{prefix}inputs/", **kwargs))
 
         # Per-branch mask metrics with IoU-matrix matching (opt-in)
@@ -3888,13 +4378,13 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
         return results
 
     @torch.no_grad()
-    def on_validation_epoch_end(self, *args, **kwargs) -> dict[str, float]:
+    def on_validation_epoch_end(self, *args, **kwargs) -> dict[str, Any]:
         map_metrics = self.map.compute()
         pq_metrics = self.pq.compute()
         self.map.reset()
         self.pq.reset()
 
-        results = {**map_metrics, **pq_metrics}
+        results: dict[str, Any] = {**map_metrics, **pq_metrics}
 
         if self.multitask:
             in_map = self.map_inputs.compute()
@@ -3902,6 +4392,11 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
             self.map_inputs.reset()
             self.pq_inputs.reset()
             results.update({f"inputs/{k}": v for k, v in {**in_map, **in_pq}.items()})
+            primary = [results[key] for key in ("map", "pq", "inputs/map", "inputs/pq")]
+            primary_tensor = torch.stack(
+                [value if torch.is_tensor(value) else torch.as_tensor(value) for value in primary]
+            )
+            results["joint_score"] = primary_tensor.clamp_min(0).prod().pow(0.25)
 
         return results
 
@@ -3996,7 +4491,7 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
         cat_logits, aligned_masks = self._coalesce_logits_masks(logits_for_match, masks_for_match)
 
         mw = self.mask_weight
-        occ_weight = (mw * self.points_weight, mw * self.inputs_weight) if self.multitask else mw
+        occ_weight = (mw * self.matcher_points_weight, mw * self.matcher_inputs_weight) if self.multitask else mw
         match, cost = hungarian_matcher(
             batch_size=len(cat_logits),
             occ_logits=logits_for_match,
@@ -4198,6 +4693,17 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
                 self.log("mask_weight", cast(Any, self.mask_weight), level=DEBUG_LEVEL_2)
         return cast(Tensor, loss)
 
+    @staticmethod
+    def _get_eval_mask_loss(mask_logits: Tensor, mask_targets: Tensor) -> Tensor:
+        if mask_logits.shape != mask_targets.shape:
+            raise ValueError(
+                f"Mask logits and targets must have the same shape, got "
+                f"{tuple(mask_logits.shape)} and {tuple(mask_targets.shape)}."
+            )
+        if mask_logits.numel() == 0:
+            return mask_logits.sum()
+        return F.binary_cross_entropy_with_logits(mask_logits, mask_targets) + dice_loss(mask_logits, mask_targets)
+
     def _get_cls_loss(
         self,
         cls_logits: Tensor,
@@ -4244,12 +4750,40 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
                 self.log("cls_weight", cast(Any, self.cls_weight), level=DEBUG_LEVEL_2)
         return loss_cls
 
+    def _get_branch_quality_loss(
+        self,
+        points_quality: Tensor,
+        points_targets: Tensor,
+        inputs_quality: Tensor,
+        inputs_targets: Tensor,
+    ) -> Tensor:
+        if points_quality.numel() == 0 or inputs_quality.numel() == 0:
+            if any(tensor.numel() != 0 for tensor in (points_targets, inputs_targets)):
+                raise ValueError("Empty branch quality logits require empty targets.")
+            return points_quality.sum() + inputs_quality.sum()
+        points_loss = F.binary_cross_entropy_with_logits(points_quality, points_targets)
+        inputs_loss = F.binary_cross_entropy_with_logits(inputs_quality, inputs_targets)
+        if self.branch_quality_loss_balance == "equal":
+            return 0.5 * (points_loss + inputs_loss)
+        points_weight = torch.as_tensor(
+            self.points_weight,
+            device=points_loss.device,
+            dtype=points_loss.dtype,
+        ).detach()
+        inputs_weight = torch.as_tensor(
+            self.inputs_weight,
+            device=inputs_loss.device,
+            dtype=inputs_loss.dtype,
+        ).detach()
+        return (points_weight * points_loss + inputs_weight * inputs_loss) / (points_weight + inputs_weight)
+
     def _get_aux_loss(
         self,
         logits: Any,
         masks: Any,
         cls_logits: Tensor | None = None,
         cls_quality: Tensor | None = None,
+        inputs_cls_quality: Tensor | None = None,
     ) -> Tensor:
         # 1) scores for matching
         cat_logits, _ = self._coalesce_logits_masks(logits, masks)
@@ -4297,12 +4831,17 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
             tgt_cls = torch.zeros_like(scores)
             tgt_cls[batch_idx, src_idx] = 1.0
 
+            inputs_dice = None
             with torch.no_grad():
                 if self.multitask and inputs_preds is not None:
                     dice_points = calculate_dice_score(points_preds.sigmoid(), points_tgt).type_as(tgt_cls)
                     dice_inputs = calculate_dice_score(inputs_preds.sigmoid(), inputs_tgt).type_as(tgt_cls)
-                    w_sum = self.points_weight + self.inputs_weight
-                    dice = (self.points_weight * dice_points + self.inputs_weight * dice_inputs) / w_sum
+                    if self.branch_quality_heads:
+                        dice = dice_points
+                        inputs_dice = dice_inputs
+                    else:
+                        w_sum = self.points_weight + self.inputs_weight
+                        dice = (self.points_weight * dice_points + self.inputs_weight * dice_inputs) / w_sum
                 else:
                     dice = calculate_dice_score(pred_masks.sigmoid(), tgt_masks).type_as(tgt_cls)
 
@@ -4322,14 +4861,26 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
                 if isinstance(self.cls_pos_weight, float):
                     pos_weight[batch_idx, src_idx] *= self.cls_pos_weight
 
-            loss += self._get_cls_loss(
-                cls_logits,
-                tgt_cls,
-                cls_quality=q_logits,
-                cls_quality_targets=q_targets,
-                pos_weight=pos_weight,
-                log=False,
-            )
+            if self.branch_quality_heads:
+                if inputs_cls_quality is None or inputs_dice is None or q_logits is None or q_targets is None:
+                    raise ValueError("Per-branch quality logits and targets are required.")
+                loss += self._get_cls_loss(cls_logits, tgt_cls, pos_weight=pos_weight, log=False)
+                input_q_logits = inputs_cls_quality[batch_idx, src_idx]
+                loss += self.cls_weight * self._get_branch_quality_loss(
+                    q_logits,
+                    q_targets,
+                    input_q_logits,
+                    inputs_dice,
+                )
+            else:
+                loss += self._get_cls_loss(
+                    cls_logits,
+                    tgt_cls,
+                    cls_quality=q_logits,
+                    cls_quality_targets=q_targets,
+                    pos_weight=pos_weight,
+                    log=False,
+                )
         return loss
 
     def loss(
@@ -4354,6 +4905,7 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
         logits = cast(Tensor, data["logits"])
         cls_logits = cast(Tensor | None, data.get("cls_logits"))
         cls_quality = cast(Tensor | None, data.get("cls_quality"))
+        inputs_cls_quality = cast(Tensor | None, data.get("inputs.cls_quality"))
         queries = cast(Tensor | None, data.get("queries"))
 
         if self.anneal_cls and global_step is not None and total_steps is not None:
@@ -4378,10 +4930,20 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
 
         extent_logits = None
         extent_targets = None
+        spatial_reference = None
+        spatial_targets = None
         if self.extent_weight > 0:
             extent_logits = points_logits[(batch_idx, src_idx)]
             extent_targets = self._matched_completion_targets(match_masks, match, bool(self.multitask)).type_as(
                 extent_logits
+            )
+        if self.spatial_reference_weight > 0:
+            reference = data.get("spatial_ref")
+            if not isinstance(reference, Tensor):
+                raise ValueError("spatial_reference_weight > 0 requires spatial_ref model output")
+            spatial_reference = reference[(batch_idx, src_idx)]
+            spatial_targets = self._matched_completion_targets(match_masks, match, bool(self.multitask)).type_as(
+                spatial_reference
             )
 
         # Optional per-modality split and stratified sampling
@@ -4435,16 +4997,39 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
                 self.log("extent/center_l1", cast(Any, center_error))
                 self.log("extent/log_half_extent_l1", cast(Any, log_extent_error))
 
+        if self.spatial_reference_weight > 0:
+            points = data.get("points")
+            if not isinstance(points, Tensor):
+                raise ValueError("spatial_reference_weight > 0 requires a tensor points field")
+            if spatial_reference is None or spatial_targets is None:
+                raise RuntimeError("Spatial reference tensors were not prepared after matching")
+            spatial_loss, center_error, log_radius_error = self._spatial_reference_loss(
+                reference=spatial_reference,
+                points=points,
+                targets=spatial_targets,
+                batch_idx=batch_idx,
+            )
+            loss = loss + self.spatial_reference_weight * spatial_loss
+            if log:
+                self.log("spatial_reference/loss", cast(Any, spatial_loss.detach()))
+                self.log("spatial_reference/center_l1", cast(Any, center_error))
+                self.log("spatial_reference/log_radius_l1", cast(Any, log_radius_error))
+
         # Classification targets (per-query)
         tgt_cls = torch.zeros_like(scores)
         tgt_cls[batch_idx, src_idx] = 1.0
 
+        inputs_dice = None
         with torch.no_grad():
             if self.multitask and inputs_preds is not None:
                 dice_points = calculate_dice_score(points_preds.sigmoid(), points_tgt).type_as(tgt_cls)
                 dice_inputs = calculate_dice_score(inputs_preds.sigmoid(), inputs_tgt).type_as(tgt_cls)
-                w_sum = self.points_weight + self.inputs_weight
-                dice = (self.points_weight * dice_points + self.inputs_weight * dice_inputs) / w_sum
+                if self.branch_quality_heads:
+                    dice = dice_points
+                    inputs_dice = dice_inputs
+                else:
+                    w_sum = self.points_weight + self.inputs_weight
+                    dice = (self.points_weight * dice_points + self.inputs_weight * dice_inputs) / w_sum
             else:
                 dice = calculate_dice_score(pred_masks.sigmoid(), tgt_masks).type_as(tgt_cls)
 
@@ -4468,9 +5053,29 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
                 pos_weight[batch_idx, src_idx] *= self.cls_pos_weight
 
         if cls_logits is not None:
-            loss += self._get_cls_loss(
-                cls_logits, tgt_cls, cls_quality=q_logits, cls_quality_targets=q_targets, pos_weight=pos_weight, log=log
-            )
+            if self.branch_quality_heads:
+                if inputs_cls_quality is None or inputs_dice is None or q_logits is None or q_targets is None:
+                    raise ValueError("Per-branch quality logits and targets are required.")
+                loss += self._get_cls_loss(cls_logits, tgt_cls, pos_weight=pos_weight, log=log)
+                input_q_logits = inputs_cls_quality[batch_idx, src_idx]
+                branch_quality_loss = self._get_branch_quality_loss(
+                    q_logits,
+                    q_targets,
+                    input_q_logits,
+                    inputs_dice,
+                )
+                if log:
+                    self.log("branch_quality_loss", cast(Any, branch_quality_loss), level=DEBUG_LEVEL_1)
+                loss += self.cls_weight * branch_quality_loss
+            else:
+                loss += self._get_cls_loss(
+                    cls_logits,
+                    tgt_cls,
+                    cls_quality=q_logits,
+                    cls_quality_targets=q_targets,
+                    pos_weight=pos_weight,
+                    log=log,
+                )
 
         # Aux heads (tuple-aware)
         aux_out = cast(list[dict[str, Any]] | None, data.get("aux_out"))
@@ -4483,6 +5088,7 @@ class DinoInstSeg3D(MultiEvalMixin, Model):
                     masks=match_masks,
                     cls_logits=cast(Tensor | None, aux.get("cls_logits")),
                     cls_quality=cast(Tensor | None, aux.get("cls_quality")),
+                    inputs_cls_quality=cast(Tensor | None, aux.get("inputs.cls_quality")),
                 )
             self.log("aux_loss", cast(Any, aux_loss), level=DEBUG_LEVEL_1)
             aux_loss = self.aux_weight * aux_loss
@@ -4996,6 +5602,7 @@ class DinoInstSegRGBD3D(Model):
             "featup_decode",
             "featup_dual",
             "raw_dual",
+            "dino_dual",
             "dino_point",
             "dino_upsampled_point",
             "dino_token_cat",
@@ -5007,12 +5614,17 @@ class DinoInstSegRGBD3D(Model):
         freeze_rgb_encoder: bool = True,
         rgb_image_normalization: Literal["auto", "imagenet", "rgb"] = "auto",
         fusion_gate_init_bias: float = -10.0,
-        featup_repo: str | None = None,
-        featup_checkpoint: str | None = None,
+        featup_repo: str = "/volume/reconstruction_data/humt_ma/external/rgbd/featup",
+        featup_checkpoint: str = (
+            "/volume/reconstruction_data/humt_ma/external/rgbd/featup/checkpoints/dinov2_jbu_stack_cocostuff.ckpt"
+        ),
         rgb_metric_checkpoint: str | None = None,
         fusion_max_ratio: float = 0.1,
+        point_fusion_max_ratio: float | None = None,
+        query_fusion_max_ratio: float | None = None,
         query_rgb_tokens: int = 1024,
         rgb_delivery: Literal["point", "query", "dual"] = "dual",
+        query_fusion_stage: Literal["late", "early"] = "late",
         rgb_residual_dropout: float = 0.0,
         depth_fusion_dropout: float = 0.0,
         rgb_token_dropout: float = 0.0,
@@ -5024,6 +5636,10 @@ class DinoInstSegRGBD3D(Model):
             raise ValueError("query_rgb_tokens must be positive")
         if rgb_delivery not in {"point", "query", "dual"}:
             raise ValueError("rgb_delivery must be one of: point, query, dual")
+        if query_fusion_stage not in {"late", "early"}:
+            raise ValueError("query_fusion_stage must be one of: late, early")
+        if rgb_fusion == "dino_token_cat" and depth_model.spatial_feedback:
+            raise ValueError("dino_token_cat does not support spatial_feedback")
         if not 0 <= rgb_residual_dropout < 1:
             raise ValueError("rgb_residual_dropout must fall within [0, 1)")
         if not 0 <= depth_fusion_dropout < 1:
@@ -5038,12 +5654,20 @@ class DinoInstSegRGBD3D(Model):
         self.rgb_fusion = rgb_fusion
         self.fusion_mode = fusion_mode
         self.train_mode = train_mode
+        self.rgb_repo_or_dir = repo_or_dir
+        self.rgb_backbone = backbone
         self.freeze_rgb_encoder = freeze_rgb_encoder
         self.rgb_image_normalization = rgb_image_normalization
         self.fusion_gate_init_bias = fusion_gate_init_bias
+        self.featup_repo = featup_repo
+        self.featup_checkpoint = featup_checkpoint
+        self.rgb_metric_checkpoint = rgb_metric_checkpoint
         self.fusion_max_ratio = fusion_max_ratio
+        self.point_fusion_max_ratio = fusion_max_ratio if point_fusion_max_ratio is None else point_fusion_max_ratio
+        self.query_fusion_max_ratio = fusion_max_ratio if query_fusion_max_ratio is None else query_fusion_max_ratio
         self.query_rgb_tokens = query_rgb_tokens
         self.rgb_delivery = rgb_delivery
+        self.query_fusion_stage = query_fusion_stage
         self.rgb_residual_dropout = rgb_residual_dropout
         self.depth_fusion_dropout = depth_fusion_dropout
         self.rgb_token_dropout = rgb_token_dropout
@@ -5064,12 +5688,6 @@ class DinoInstSegRGBD3D(Model):
                 gate_init_bias=fusion_gate_init_bias,
             )
 
-        if rgb_fusion in {"featup_decode", "featup_dual"}:
-            if featup_repo is None or featup_checkpoint is None:
-                raise ValueError("featup_repo and featup_checkpoint are required for FeatUp RGB fusion")
-            featup_repo = str(featup_repo)
-            featup_checkpoint = str(featup_checkpoint)
-
         if rgb_fusion == "featup_decode":
             self.rgb_provider = FeatUpPointFeatureProvider(featup_repo, featup_checkpoint)
             self.point_fusion = RGBPointFusion(
@@ -5079,9 +5697,17 @@ class DinoInstSegRGBD3D(Model):
                 gate_init_bias=fusion_gate_init_bias,
             )
 
-        if rgb_fusion in {"featup_dual", "raw_dual"}:
+        if rgb_fusion in {"featup_dual", "raw_dual", "dino_dual"}:
             if rgb_fusion == "featup_dual":
                 self.rgb_provider = FeatUpPointFeatureProvider(featup_repo, featup_checkpoint)
+                adapter_input_dim = self.rgb_provider.out_dim
+            elif rgb_fusion == "dino_dual":
+                self.rgb_provider = DinoPointFeatureProvider(
+                    repo_or_dir=repo_or_dir,
+                    backbone=backbone,
+                    freeze=freeze_rgb_encoder,
+                    image_normalization=rgb_image_normalization,
+                )
                 adapter_input_dim = self.rgb_provider.out_dim
             else:
                 adapter_input_dim = 3
@@ -5101,14 +5727,14 @@ class DinoInstSegRGBD3D(Model):
                 self.point_fusion = NormBoundedPointFusion(
                     self.depth_model.n_embd,
                     rgb_dim=self.metric_adapter.output_dim,
-                    max_ratio=fusion_max_ratio,
+                    max_ratio=self.point_fusion_max_ratio,
                 )
             if rgb_delivery in {"query", "dual"}:
                 self.query_fusion = NormBoundedQueryFusion(
                     self.depth_model.n_embd,
                     rgb_dim=self.metric_adapter.output_dim,
                     num_heads=self.depth_model.n_head,
-                    max_ratio=fusion_max_ratio,
+                    max_ratio=self.query_fusion_max_ratio,
                 )
 
         if rgb_fusion == "dino_point":
@@ -5158,6 +5784,37 @@ class DinoInstSegRGBD3D(Model):
     @property
     def pq(self):
         return self.depth_model.pq
+
+    @property
+    def effective_model_config(self) -> dict[str, Any]:
+        """Expose depth and RGB-D settings to runtime contract verification."""
+        config = dict(self.depth_model.effective_model_config)
+        config.update(
+            {
+                "model_class": type(self).__name__,
+                "rgb_fusion": self.rgb_fusion,
+                "fusion_mode": self.fusion_mode,
+                "train_mode": self.train_mode,
+                "rgb_repo_or_dir": self.rgb_repo_or_dir,
+                "rgb_backbone": self.rgb_backbone,
+                "freeze_rgb_encoder": self.freeze_rgb_encoder,
+                "rgb_image_normalization": self.rgb_image_normalization,
+                "fusion_gate_init_bias": self.fusion_gate_init_bias,
+                "featup_repo": self.featup_repo,
+                "featup_checkpoint": self.featup_checkpoint,
+                "rgb_metric_checkpoint": self.rgb_metric_checkpoint,
+                "fusion_max_ratio": self.fusion_max_ratio,
+                "point_fusion_max_ratio": self.point_fusion_max_ratio,
+                "query_fusion_max_ratio": self.query_fusion_max_ratio,
+                "query_rgb_tokens": self.query_rgb_tokens,
+                "rgb_delivery": self.rgb_delivery,
+                "query_fusion_stage": self.query_fusion_stage,
+                "rgb_residual_dropout": self.rgb_residual_dropout,
+                "depth_fusion_dropout": self.depth_fusion_dropout,
+                "rgb_token_dropout": self.rgb_token_dropout,
+            }
+        )
+        return config
 
     def _task_aligned_depth_modules(self) -> list[nn.Module]:
         names = (
@@ -5221,30 +5878,32 @@ class DinoInstSegRGBD3D(Model):
         return cast(Tensor, value)
 
     def _encode_with_point_features(self, inputs: Tensor, rgb_features: Tensor, **kwargs) -> Tensor:
-        if self.point_fusion is None:
+        feature, _ = self._encode_with_point_features_and_positions(inputs, rgb_features, **kwargs)
+        return feature
+
+    def _encode_with_point_features_and_positions(
+        self,
+        inputs: Tensor,
+        rgb_features: Tensor,
+        **kwargs,
+    ) -> tuple[Tensor, Tensor]:
+        point_fusion = self.point_fusion
+        if point_fusion is None:
             raise RuntimeError("Point fusion module is not initialized.")
-        dm = self.depth_model
-        inputs_fps = furthest_point_sample(inputs, num_samples=dm.num_queries)
-        q = dm.nerf_enc(inputs_fps)
-        kv_depth = dm.nerf_enc(inputs)
-        kv = self.point_fusion(kv_depth, rgb_features)
-        if isinstance(self.point_fusion, RGBPointFusion) and self.point_fusion.last_gate_stats is not None:
-            for stat_name, stat_value in self.point_fusion.last_gate_stats.items():
-                self.log(f"rgb_gate/{stat_name}", stat_value, level=DEBUG_LEVEL_1)
-        self.last_rgb_feature_shape = tuple(kv.shape)
-        x = dm.inputs_enc(q, kv)
-        x = torch.cat((dm.encoder.cls_token.expand(len(x), -1, -1), x), dim=1)
-        feat = dm.encoder(x)
-        if hasattr(dm, "lvl_embd"):
-            feat = [
-                (dm.lvl_norm(f + e), dm.lvl_norm(c + e)) for (f, c), e in zip(feat, dm.lvl_embd.weight, strict=False)
-            ]
-        patch_feat = feat[-1][0]
-        if dm.cat_feat:
-            patch_feat = torch.cat([f[0] for f in feat], dim=1)
-        if dm.cls_token:
-            return torch.cat((feat[-1][1].unsqueeze(1), patch_feat), dim=1)
-        return patch_feat
+
+        def fuse_memory(memory: Tensor) -> Tensor:
+            fused = point_fusion(memory, rgb_features)
+            if isinstance(point_fusion, RGBPointFusion) and point_fusion.last_gate_stats is not None:
+                for stat_name, stat_value in point_fusion.last_gate_stats.items():
+                    self.log(f"rgb_gate/{stat_name}", stat_value, level=DEBUG_LEVEL_1)
+            self.last_rgb_feature_shape = tuple(fused.shape)
+            return fused
+
+        return self.depth_model._encode_with_positions(
+            inputs=inputs,
+            memory_fusion=fuse_memory,
+            **kwargs,
+        )
 
     def _dino_tokens_from_image(self, image: Tensor) -> Tensor:
         if not isinstance(self.rgb_provider, DinoPointFeatureProvider):
@@ -5254,44 +5913,89 @@ class DinoInstSegRGBD3D(Model):
         patches, _, _ = self.rgb_provider._encode_patches(image)
         return self.rgb_token_proj(patches)
 
-    def encode(self, inputs: Tensor, **kwargs) -> Tensor:
-        if self.rgb_fusion in {"none", "raw_decode", "featup_decode", "featup_dual", "raw_dual"}:
-            return self.depth_model.encode(inputs=inputs, **kwargs)
+    def _encode_dino_token_cat_feature(self, inputs: Tensor, **kwargs) -> Tensor:
+        if isinstance(self.depth_model.points_dec, nn.ModuleList):
+            raise ValueError("dino_token_cat requires a single decoder; point_dec='multi' is unsupported.")
+        image = self._require_tensor(kwargs, "inputs.image").to(device=inputs.device, dtype=inputs.dtype)
+        depth_tokens = self.depth_model.encode(inputs=inputs, **kwargs)
+        rgb_tokens = self._dino_tokens_from_image(image).to(dtype=depth_tokens.dtype)
+        self.last_rgb_feature_shape = tuple(rgb_tokens.shape)
+        if self.mod_emb is not None:
+            rgb_tokens = rgb_tokens + self.mod_emb[1]
+        if self.depth_model.cls_token:
+            cls_token = depth_tokens[:, :1]
+            patch_tokens = depth_tokens[:, 1:]
+            if self.mod_emb is not None:
+                patch_tokens = patch_tokens + self.mod_emb[0]
+            return torch.cat((cls_token, patch_tokens, rgb_tokens), dim=1)
+        if self.mod_emb is not None:
+            depth_tokens = depth_tokens + self.mod_emb[0]
+        return torch.cat((depth_tokens, rgb_tokens), dim=1)
+
+    def _encode_with_positions(self, inputs: Tensor, **kwargs) -> tuple[Tensor, Tensor | None]:
+        if self.rgb_fusion in {
+            "none",
+            "raw_decode",
+            "featup_decode",
+            "featup_dual",
+            "raw_dual",
+            "dino_dual",
+        }:
+            return self.depth_model._encode_with_positions(inputs=inputs, **kwargs)
         if self.rgb_fusion == "raw_point":
             colors = self._require_tensor(kwargs, "inputs.colors").to(device=inputs.device, dtype=inputs.dtype)
-            return self._encode_with_point_features(inputs, colors, **kwargs)
+            return self._encode_with_point_features_and_positions(inputs, colors, **kwargs)
         if self.rgb_fusion == "dino_point":
             if self.rgb_provider is None:
                 raise RuntimeError("DINO RGB provider is not initialized.")
             image = self._require_tensor(kwargs, "inputs.image").to(device=inputs.device, dtype=inputs.dtype)
             pixel_coords = self._require_tensor(kwargs, "inputs.pixel_coords").to(device=inputs.device)
             rgb_features = self.rgb_provider(image, pixel_coords).to(dtype=inputs.dtype)
-            return self._encode_with_point_features(inputs, rgb_features, **kwargs)
+            return self._encode_with_point_features_and_positions(inputs, rgb_features, **kwargs)
         if self.rgb_fusion == "dino_token_cat":
-            if isinstance(self.depth_model.points_dec, nn.ModuleList):
-                raise ValueError("dino_token_cat requires a single decoder; point_dec='multi' is unsupported.")
-            image = self._require_tensor(kwargs, "inputs.image").to(device=inputs.device, dtype=inputs.dtype)
-            depth_tokens = self.depth_model.encode(inputs=inputs, **kwargs)
-            rgb_tokens = self._dino_tokens_from_image(image).to(dtype=depth_tokens.dtype)
-            self.last_rgb_feature_shape = tuple(rgb_tokens.shape)
-            if self.mod_emb is not None:
-                rgb_tokens = rgb_tokens + self.mod_emb[1]
-            if self.depth_model.cls_token:
-                cls_token = depth_tokens[:, :1]
-                patch_tokens = depth_tokens[:, 1:]
-                if self.mod_emb is not None:
-                    patch_tokens = patch_tokens + self.mod_emb[0]
-                return torch.cat((cls_token, patch_tokens, rgb_tokens), dim=1)
-            if self.mod_emb is not None:
-                depth_tokens = depth_tokens + self.mod_emb[0]
-            return torch.cat((depth_tokens, rgb_tokens), dim=1)
+            # RGB memory tokens have no 3D coordinates, so spatial feedback must reject this
+            # combination instead of assigning arbitrary coordinates to image tokens.
+            return self._encode_dino_token_cat_feature(inputs, **kwargs), None
         raise NotImplementedError(f"RGB fusion '{self.rgb_fusion}' is not implemented yet.")
 
-    def forward(self, inputs: Tensor, points: Tensor | None = None, **kwargs) -> dict[str, Any]:
-        feature = self.encode(inputs=inputs, **kwargs)
-        _points = inputs if points is None else points
-        decode_kwargs: dict[str, Any] = {}
-        if self.rgb_fusion in {"raw_decode", "featup_decode", "featup_dual", "raw_dual"}:
+    def _feature_positions(self, inputs: Tensor, **kwargs) -> Tensor | None:
+        if self.rgb_fusion in {
+            "none",
+            "raw_decode",
+            "featup_decode",
+            "featup_dual",
+            "raw_dual",
+            "dino_dual",
+            "raw_point",
+            "dino_point",
+        }:
+            return self.depth_model._feature_positions(inputs, **kwargs)
+        if self.rgb_fusion == "dino_token_cat":
+            return None
+        raise NotImplementedError(f"RGB fusion '{self.rgb_fusion}' is not implemented yet.")
+
+    def encode(self, inputs: Tensor, **kwargs) -> Tensor:
+        feature, _ = self._encode_with_positions(inputs, **kwargs)
+        return feature
+
+    def encode_with_positions(self, inputs: Tensor, **kwargs) -> tuple[Tensor, Tensor | None]:
+        return self._encode_with_positions(inputs, **kwargs)
+
+    def _prepare_decode_kwargs(
+        self,
+        inputs: Tensor,
+        anchor_positions: Tensor | None,
+        kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        decode_kwargs = dict(kwargs)
+        decode_kwargs["anchor_positions"] = anchor_positions
+        if self.rgb_fusion in {
+            "raw_decode",
+            "featup_decode",
+            "featup_dual",
+            "raw_dual",
+            "dino_dual",
+        }:
             if self.point_fusion is None and self.query_fusion is None:
                 raise RuntimeError("Decode-side RGB fusion module is not initialized.")
             if self.rgb_fusion == "raw_decode":
@@ -5303,6 +6007,15 @@ class DinoInstSegRGBD3D(Model):
                     raise RuntimeError("Raw RGB metric adapter is not initialized.")
                 colors = self._require_tensor(kwargs, "inputs.colors").to(device=inputs.device)
                 rgb_features = self.metric_adapter(colors.float()).to(dtype=inputs.dtype)
+            elif self.rgb_fusion == "dino_dual":
+                if not isinstance(self.rgb_provider, DinoPointFeatureProvider):
+                    raise RuntimeError("DINO RGB provider is not initialized.")
+                image = self._require_tensor(kwargs, "inputs.image").to(device=inputs.device)
+                pixel_coords = self._require_tensor(kwargs, "inputs.pixel_coords").to(device=inputs.device)
+                rgb_features = self.rgb_provider(image, pixel_coords).to(dtype=inputs.dtype)
+                if self.metric_adapter is None:
+                    raise RuntimeError("Task-aligned RGB modules are not initialized.")
+                rgb_features = self.metric_adapter(rgb_features.float()).to(dtype=inputs.dtype)
             else:
                 if not isinstance(self.rgb_provider, FeatUpPointFeatureProvider):
                     raise RuntimeError("FeatUp RGB provider is not initialized.")
@@ -5315,7 +6028,7 @@ class DinoInstSegRGBD3D(Model):
                     rgb_features = self.metric_adapter(rgb_features.float()).to(dtype=inputs.dtype)
             rgb_keep_mask = None
             depth_keep_mask = None
-            if self.rgb_fusion in {"featup_dual", "raw_dual"}:
+            if self.rgb_fusion in {"featup_dual", "raw_dual", "dino_dual"}:
                 if self.training and self.rgb_residual_dropout + self.depth_fusion_dropout > 0:
                     rgb_keep_mask, depth_keep_mask = _fusion_keep_masks(
                         torch.rand(inputs.size(0), device=inputs.device),
@@ -5366,9 +6079,10 @@ class DinoInstSegRGBD3D(Model):
                     {
                         "query_aux_feat": query_rgb,
                         "query_feat_fusion": self.query_fusion,
+                        "query_feat_fusion_stage": self.query_fusion_stage,
                     }
                 )
-            if self.rgb_fusion in {"featup_dual", "raw_dual"}:
+            if self.rgb_fusion in {"featup_dual", "raw_dual", "dino_dual"}:
                 if self.point_fusion is not None:
                     if not isinstance(self.point_fusion, NormBoundedPointFusion):
                         raise RuntimeError("Task-aligned point fusion module is invalid.")
@@ -5377,7 +6091,9 @@ class DinoInstSegRGBD3D(Model):
                 if self.query_fusion is not None:
                     self.query_fusion.sample_mask = rgb_keep_mask
                     self.query_fusion.depth_sample_mask = depth_keep_mask
-        out = self.depth_model.decode(points=_points, feature=feature, inputs=inputs, **decode_kwargs, **kwargs)
+        return decode_kwargs
+
+    def _log_fusion_stats(self) -> None:
         gate_stats = None if self.point_fusion is None else getattr(self.point_fusion, "last_gate_stats", None)
         if gate_stats is not None:
             for stat_name, stat_value in gate_stats.items():
@@ -5389,6 +6105,14 @@ class DinoInstSegRGBD3D(Model):
         if self.query_fusion is not None and self.query_fusion.last_ratio_stats is not None:
             for stat_name, stat_value in self.query_fusion.last_ratio_stats.items():
                 self.log(f"rgb_residual/query_{stat_name}", stat_value, level=DEBUG_LEVEL_1)
+
+    def forward(self, inputs: Tensor, points: Tensor | None = None, **kwargs) -> dict[str, Any]:
+        feature, computed_anchor_positions = self._encode_with_positions(inputs=inputs, **kwargs)
+        anchor_positions = kwargs.get("anchor_positions", computed_anchor_positions)
+        decode_kwargs = self._prepare_decode_kwargs(inputs, anchor_positions, kwargs)
+        _points = inputs if points is None else points
+        out = self.depth_model.decode(points=_points, feature=feature, inputs=inputs, **decode_kwargs)
+        self._log_fusion_stats()
         return out
 
     def loss(self, data: dict[str, Any], **kwargs) -> Tensor | tuple[Tensor, dict[str, Tensor]]:
@@ -5405,13 +6129,39 @@ class DinoInstSegRGBD3D(Model):
     ):
         if data is not None and any("logits" in key for key in data.keys()):
             return self.depth_model.predict(inputs=inputs, points=points, feature=feature, data=data, **kwargs)
+        if points is None and data is not None and torch.is_tensor(data.get("points")):
+            points = cast(Tensor, data["points"])
+        if inputs is None and data is not None and torch.is_tensor(data.get("inputs")):
+            inputs = cast(Tensor, data["inputs"])
+        predict_kwargs = dict(data or {})
+        predict_kwargs.update(kwargs)
+        predict_kwargs.pop("inputs", None)
+        predict_kwargs.pop("points", None)
+        anchor_positions = predict_kwargs.get("anchor_positions")
         if feature is None:
             if inputs is None:
-                if data is None or not torch.is_tensor(data.get("inputs")):
-                    raise ValueError("inputs is required when precomputed logits or feature are not provided.")
-                inputs = cast(Tensor, data["inputs"])
-            feature = self.encode(inputs=inputs, **kwargs)
-        return self.depth_model.predict(inputs=inputs, points=points, feature=feature, data=data, **kwargs)
+                raise ValueError("inputs is required when precomputed logits or feature are not provided.")
+            feature, computed_anchor_positions = self._encode_with_positions(inputs=inputs, **predict_kwargs)
+            if anchor_positions is None:
+                anchor_positions = computed_anchor_positions
+        elif anchor_positions is None and inputs is not None:
+            anchor_positions = self._feature_positions(inputs, **predict_kwargs)
+
+        if inputs is not None:
+            predict_kwargs = self._prepare_decode_kwargs(inputs, anchor_positions, predict_kwargs)
+        elif self.rgb_fusion in {
+            "raw_decode",
+            "featup_decode",
+            "featup_dual",
+            "raw_dual",
+            "dino_dual",
+        }:
+            raise ValueError("inputs is required for decode-side RGB fusion prediction.")
+        elif anchor_positions is not None:
+            predict_kwargs["anchor_positions"] = anchor_positions
+        result = self.depth_model.predict(inputs=inputs, points=points, feature=feature, data=data, **predict_kwargs)
+        self._log_fusion_stats()
+        return result
 
     @torch.inference_mode()
     def evaluate(self, data: dict[str, Any], **kwargs) -> dict[str, Any]:

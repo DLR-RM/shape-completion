@@ -139,6 +139,7 @@ def test_save_invalid_precision_raises(tmp_path: Path) -> None:
 
 
 def test_save_pymeshlab_branch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    pymeshlab = pytest.importorskip("pymeshlab")
     calls: list[str] = []
 
     def fake_save_mesh(

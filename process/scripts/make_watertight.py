@@ -54,6 +54,9 @@ logger.debug(f"Enabled modes: {MODES}")
 
 
 def load(in_path: Path, loader: str = "pymeshlab", return_type: str = "dict") -> Trimesh | dict[str, np.ndarray]:
+    if return_type not in {"dict", "trimesh"}:
+        raise ValueError(f"Unknown return type '{return_type}'.")
+
     try:
         vertices, faces = load_mesh(in_path, load_with=loader)
     except Exception as exc:
@@ -67,10 +70,7 @@ def load(in_path: Path, loader: str = "pymeshlab", return_type: str = "dict") ->
 
     if return_type == "dict":
         return {"vertices": vertices, "faces": faces}
-    elif return_type == "trimesh":
-        return Trimesh(vertices=vertices, faces=faces, process=False, validate=False)
-    else:
-        raise ValueError(f"Unknown return type '{return_type}'.")
+    return Trimesh(vertices=vertices, faces=faces, process=False, validate=False)
 
 
 def _normalize_scale(scale: float | tuple[float, float, float] | np.ndarray) -> float | np.ndarray:

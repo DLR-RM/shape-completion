@@ -291,7 +291,13 @@ def test_get_tabletop_rgbd_can_load_kinect_depth_source(monkeypatch: pytest.Monk
             "train": {"num_query_points": 10000},
             "val": {"num_query_points": 100000},
             "aug": {"rotate": False, "scale": False, "translate": False, "noise": False},
-            "data": {"frame": "world", "dither": False, "split": False},
+            "data": {
+                "frame": "world",
+                "dither": False,
+                "split": False,
+                "allow_empty_scenes": True,
+                "exclude_manifest": "/tmp/excluded.json",
+            },
             "norm": {"center": False, "scale": False, "scale_factor": 1.0, "reference": "inputs", "padding": 0.0},
             "implicit": {"near": None, "far": None},
             "load": {"keys_to_keep": ["inputs", "inputs.image", "inputs.colors", "inputs.pixel_coords"], "hdf5": False},
@@ -312,6 +318,100 @@ def test_get_tabletop_rgbd_can_load_kinect_depth_source(monkeypatch: pytest.Monk
     assert isinstance(dataset, FakeTableTop)
     assert calls[0]["load_color"] is True
     assert calls[0]["load_depth"] == "kinect"
+    assert calls[0]["allow_empty_scenes"] is True
+    assert calls[0]["exclude_manifest"] == Path("/tmp/excluded.json")
+
+
+def test_get_tabletop_uses_dataset_specific_3d_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, Any]] = []
+
+    class FakeTableTop:
+        def __init__(self, **kwargs: Any) -> None:
+            calls.append(kwargs)
+
+    monkeypatch.setattr("dataset.TableTop", FakeTableTop)
+    monkeypatch.setattr("dataset.get_tabletop_transforms", lambda **kwargs: None)
+
+    cfg = OmegaConf.create(
+        {
+            "dirs": {
+                "tabletop": "/tmp/tabletop",
+                "objaverse_rgbd_v2": "/tmp/objaverse",
+                "objaverse_rgbd_v2_3d": "/tmp/objaverse_3d",
+                "shapenet_v1_fused": "/tmp/shapenet",
+            },
+            "inputs": {
+                "type": "depth",
+                "project": False,
+                "min_num_points": 1,
+                "max_num_points": None,
+                "num_points": None,
+                "normals": False,
+            },
+            "points": {
+                "subsample": False,
+                "min_num_points": 1,
+                "max_num_points": None,
+                "crop": False,
+                "voxelize": False,
+                "from_pointcloud": False,
+                "cache": False,
+            },
+            "train": {"num_query_points": 10000},
+            "val": {"num_query_points": 100000},
+            "aug": {"rotate": False, "scale": False, "translate": False, "noise": False},
+            "data": {"frame": "world", "dither": False, "split": False},
+            "norm": {
+                "center": False,
+                "scale": False,
+                "scale_factor": 1.0,
+                "reference": "inputs",
+                "padding": 0.0,
+            },
+            "implicit": {"near": None, "far": None},
+            "load": {"keys_to_keep": ["inputs", "points"], "hdf5": False},
+            "files": {
+                "mesh": None,
+                "pointcloud": None,
+                "points": {"train": "samples/uniform_random.npz", "val": None},
+            },
+            "load_3d": True,
+            "collate_3d": None,
+            "filter": False,
+            "pointcloud": {"normals": False},
+            "patch_size": None,
+            "scale": 1.0,
+            "stack_2d": False,
+            "sample_free": "cube",
+        }
+    )
+
+    get_tabletop(cfg, split="train", ds="objaverse_rgbd_v2")
+    get_tabletop(cfg, split="train", ds="tabletop")
+
+    assert calls[0]["data_dir"] == Path("/tmp/objaverse")
+    assert calls[0]["data_dir_3d"] == Path("/tmp/objaverse_3d")
+    assert calls[1]["data_dir"] == Path("/tmp/tabletop")
+    assert calls[1]["data_dir_3d"] == Path("/tmp/shapenet")
+
+
+def test_get_dataset_routes_objaverse_rgbd_to_tabletop(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def fake_get_tabletop(cfg: Any, split: str, ds: str = "tabletop") -> list[Any]:
+        calls.append((split, ds))
+        return []
+
+    cfg = _base_cfg(show=False, save=False, mesh=False)
+    cfg.data.train_ds = ["objaverse_rgbd_v2"]
+    cfg.dirs.objaverse_rgbd_v2 = "/tmp/objaverse"
+    monkeypatch.setattr("dataset.get_tabletop", fake_get_tabletop)
+    monkeypatch.setattr("dataset.print_dataset_info", lambda *args, **kwargs: None)
+
+    datasets = get_dataset(cfg, splits=("train",))
+
+    assert datasets["train"] == []
+    assert calls == [("train", "objaverse_rgbd_v2")]
 
 
 def test_get_dataset_routes_gc6d_to_scene_factory(monkeypatch: pytest.MonkeyPatch) -> None:

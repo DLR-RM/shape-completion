@@ -10,30 +10,57 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 path_prepend_once() {
     local var_name="$1"
     local path="$2"
-    local current="${!var_name:-}"
+    local current="${!var_name-}"
+    local part
+    local next="$path"
+    local -a parts
 
     [[ -z "$path" ]] && return
-    case ":$current:" in
-        *":$path:"*) ;;
-        *) export "$var_name=$path${current:+:$current}" ;;
-    esac
+    if [[ -v "$var_name" ]]; then
+        if [[ -z "$current" ]]; then
+            next="$next:"
+        else
+            IFS=: read -r -a parts <<< "$current"
+            for part in "${parts[@]}"; do
+                [[ "$part" == "$path" ]] && continue
+                next="$next:$part"
+            done
+            if [[ "$current" == *: ]]; then
+                next="$next:"
+            fi
+        fi
+    fi
+    export "$var_name=$next"
 }
 
 path_remove() {
     local var_name="$1"
     local path="$2"
     local current="${!var_name:-}"
-    local old_ifs="$IFS"
     local part
     local next=""
+    local first=1
+    local -a parts
 
     [[ -z "$current" || -z "$path" ]] && return
-    IFS=:
-    for part in $current; do
-        [[ -z "$part" || "$part" == "$path" ]] && continue
-        next="${next:+$next:}$part"
+    IFS=: read -r -a parts <<< "$current"
+    for part in "${parts[@]}"; do
+        [[ "$part" == "$path" ]] && continue
+        if (( first )); then
+            next="$part"
+            first=0
+        else
+            next="$next:$part"
+        fi
     done
-    IFS="$old_ifs"
+    if [[ "$current" == *: ]]; then
+        if (( first )); then
+            next=""
+            first=0
+        else
+            next="$next:"
+        fi
+    fi
     export "$var_name=$next"
 }
 
@@ -41,17 +68,30 @@ path_remove_prefix() {
     local var_name="$1"
     local prefix="$2"
     local current="${!var_name:-}"
-    local old_ifs="$IFS"
     local part
     local next=""
+    local first=1
+    local -a parts
 
     [[ -z "$current" || -z "$prefix" ]] && return
-    IFS=:
-    for part in $current; do
-        [[ -z "$part" || "$part" == "$prefix"* ]] && continue
-        next="${next:+$next:}$part"
+    IFS=: read -r -a parts <<< "$current"
+    for part in "${parts[@]}"; do
+        [[ "$part" == "$prefix"* ]] && continue
+        if (( first )); then
+            next="$part"
+            first=0
+        else
+            next="$next:$part"
+        fi
     done
-    IFS="$old_ifs"
+    if [[ "$current" == *: ]]; then
+        if (( first )); then
+            next=""
+            first=0
+        else
+            next="$next:"
+        fi
+    fi
     export "$var_name=$next"
 }
 
@@ -131,3 +171,7 @@ elif command -v micromamba >/dev/null 2>&1; then
 else
     echo "warning: no Python environment found" >&2
 fi
+
+# A shared editable environment may still point console scripts at the checkout
+# that created it. Keep this checkout first on the import path.
+path_prepend_once PYTHONPATH "$REPO_ROOT"

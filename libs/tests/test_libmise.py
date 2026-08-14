@@ -7,6 +7,9 @@ from .. import MISE  # pyright: ignore[reportAttributeAccessIssue]
 if MISE is None:
     pytest.skip("libmise is not installed", allow_module_level=True)
 
+if MISE is None:
+    pytest.skip("libmise extension is not installed", allow_module_level=True)
+
 
 def test_mise():
     # t0 = time.perf_counter()

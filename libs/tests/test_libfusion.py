@@ -6,6 +6,9 @@ from .. import PyViews, tsdf_fusion  # pyright: ignore[reportAttributeAccessIssu
 if PyViews is None or tsdf_fusion is None:
     pytest.skip("libfusion is not installed", allow_module_level=True)
 
+if PyViews is None or tsdf_fusion is None:
+    pytest.skip("libfusion extension is not installed", allow_module_level=True)
+
 
 def test_fusion():
     depthmaps = [np.random.rand(480, 640) for _ in range(10)]

@@ -171,10 +171,16 @@ class Attention(nn.Module):
         self._backend = backend
 
     def _torch(self, q: Tensor, k: Tensor, v: Tensor, **kwargs) -> Tensor:
+        attn_bias = kwargs.get("attn_bias")
         is_16bit = q.dtype in [torch.float16, torch.bfloat16]
-        enable_flash = self.mode == "flash" and is_16bit
-        enable_math = self.mode == "math" or not is_16bit
-        enable_mem_efficient = self.mode == "efficient" or (self.mode == "flash" and not is_16bit) or q.size(-1) > 256
+        enable_flash = self.mode == "flash" and is_16bit and attn_bias is None
+        enable_math = self.mode == "math" or not is_16bit or attn_bias is not None
+        enable_mem_efficient = (
+            self.mode == "efficient"
+            or (self.mode == "flash" and not is_16bit)
+            or q.size(-1) > 256
+            or attn_bias is not None
+        )
         dropout_p = self.dropout if self.training else 0.0
 
         try:
@@ -188,14 +194,14 @@ class Attention(nn.Module):
                     backends.append(SDPBackend.EFFICIENT_ATTENTION)
                 with torch.nn.attention.sdpa_kernel(backends):
                     return F.scaled_dot_product_attention(
-                        q, k, v, dropout_p=dropout_p, is_causal=self.causal
+                        q, k, v, attn_mask=attn_bias, dropout_p=dropout_p, is_causal=self.causal
                     )  # [B, H, T, C]
             else:
                 with torch.backends.cuda.sdp_kernel(
                     enable_flash=enable_flash, enable_math=enable_math, enable_mem_efficient=enable_mem_efficient
                 ):
                     return F.scaled_dot_product_attention(
-                        q, k, v, dropout_p=dropout_p, is_causal=self.causal
+                        q, k, v, attn_mask=attn_bias, dropout_p=dropout_p, is_causal=self.causal
                     )  # [B, H, T, C]
         except torch.cuda.OutOfMemoryError:
             logger.exception(f"CUDA OOM with input shapes: q={q.shape}, k={k.shape}, v={v.shape}")
@@ -266,6 +272,8 @@ class Attention(nn.Module):
     def forward(self, q: Tensor, k: Tensor | None = None, v: Tensor | None = None, **kwargs) -> Tensor:
         k_tensor = q if k is None else k
         v_tensor = q if v is None else v
+        if kwargs.get("attn_bias") is not None and self.backend != "torch":
+            raise ValueError("Additive attention bias is supported only by the torch backend")
         if self.backend == "torch":
             return self._torch(q, k_tensor, v_tensor, **kwargs)
         if self.backend == "xformers":
@@ -641,11 +649,17 @@ class Block(nn.Module):
         self.dp_2 = DropPath(drop_path_values[1]) if drop_path_values[1] and cross_attn else nn.Identity()
         self.dp_3 = DropPath(drop_path_values[2]) if drop_path_values[2] and projection else nn.Identity()
 
-    def forward(self, x: Tensor, mem: Tensor | None = None) -> Tensor:
+    def forward(
+        self,
+        x: Tensor,
+        mem: Tensor | None = None,
+        self_attn_bias: Tensor | None = None,
+        cross_attn_bias: Tensor | None = None,
+    ) -> Tensor:
         if self.self_attn is not None:
-            x = x + self.dp_1(self.self_attn(self.ln_1(x)))
+            x = x + self.dp_1(self.self_attn(self.ln_1(x), attn_bias=self_attn_bias))
         if self.cross_attn is not None:
-            x = x + self.dp_2(self.cross_attn(self.ln_2(x), mem))
+            x = x + self.dp_2(self.cross_attn(self.ln_2(x), mem, attn_bias=cross_attn_bias))
         if self.projection is not None:
             x = x + self.dp_3(self.projection(self.ln_3(x)))
         return x
@@ -810,9 +824,15 @@ class Decoder(nn.Module):
             ]
         )
 
-    def forward(self, x: Tensor, mem: Tensor | None = None) -> Tensor:
+    def forward(
+        self,
+        x: Tensor,
+        mem: Tensor | None = None,
+        self_attn_bias: Tensor | None = None,
+        cross_attn_bias: Tensor | None = None,
+    ) -> Tensor:
         for layer in self.layers:
-            x = layer(x, mem)
+            x = layer(x, mem, self_attn_bias=self_attn_bias, cross_attn_bias=cross_attn_bias)
         return x
 
 
